@@ -34,6 +34,34 @@
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
   #app{max-width:960px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top)) 16px calc(90px + env(safe-area-inset-bottom));}
 
+  #loginScreen{
+    min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;
+    padding:24px 18px calc(24px + env(safe-area-inset-bottom));
+  }
+  .login-box{
+    width:100%;max-width:360px;background:var(--surface);border:1px solid var(--border);
+    border-radius:10px;padding:26px 22px;position:relative;
+  }
+  .login-box::before{
+    content:"";position:absolute;top:-6px;left:0;right:0;height:8px;
+    background-image:linear-gradient(135deg, var(--bg) 50%, transparent 50%),linear-gradient(45deg, var(--bg) 50%, transparent 50%);
+    background-size:12px 12px;background-color:var(--surface);
+  }
+  .login-logo{text-align:center;margin-bottom:14px;}
+  .login-logo img{width:62px;height:62px;border-radius:14px;}
+  .login-title{font-size:21px;text-align:center;margin:2px 0 20px;font-weight:650;letter-spacing:0.02em;}
+  .login-btn-full{width:100%;text-align:center;padding:12px;font-size:12.5px;}
+  .login-hint{font-size:11px;color:var(--text-faint);line-height:1.55;}
+  .login-error{
+    background:var(--danger-dim);border:1px solid var(--danger);color:#f0c4b8;
+    font-size:11.5px;padding:8px 10px;border-radius:5px;margin-top:12px;line-height:1.4;
+  }
+  .link-btn{
+    background:none;border:none;color:var(--text-faint);font-family:var(--mono);font-size:10.5px;
+    text-decoration:underline;cursor:pointer;padding:0;margin-top:14px;display:block;width:100%;text-align:center;
+  }
+  .link-btn:hover{color:var(--accent-bright);}
+
   header.top{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:16px;margin-bottom:20px;border-bottom:1px solid var(--border);}
   header.top h1{font-size:19px;letter-spacing:0.02em;margin:0;font-weight:650;}
   header.top .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--accent);margin-bottom:4px;display:block;}
@@ -140,7 +168,38 @@
 </style>
 </head>
 <body>
-<div id="app">
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">
+      <img src="icons/icon-192.png" alt="">
+    </div>
+    <span class="eyebrow" style="text-align:center;display:block;">Reisekosten · Belegerfassung</span>
+    <h1 class="login-title">Belegverwaltung</h1>
+
+    <div id="loginSetupNeeded" style="display:none;">
+      <div class="login-hint" style="margin-bottom:14px;">Diese App ist noch nicht mit deiner Cloud verbunden. Trage einmalig die Zugangsdaten deines Supabase-Projekts ein.</div>
+      <span class="field-lbl">Supabase Project URL</span>
+      <input class="edit-input" id="supabaseUrlInput" placeholder="https://xxxxx.supabase.co">
+      <span class="field-lbl" style="margin-top:8px;">Supabase anon public Key</span>
+      <input class="edit-input" id="supabaseKeyInput" type="password" placeholder="eyJhbGciOi...">
+      <button class="btn primary login-btn-full" id="saveSupabaseConfig" style="margin-top:12px;">Verbinden</button>
+    </div>
+
+    <div id="loginFormBlock" style="display:none;">
+      <span class="field-lbl">Benutzername</span>
+      <input class="edit-input" id="authUsername" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="z. B. matthi">
+      <span class="field-lbl" style="margin-top:10px;">Passwort</span>
+      <input class="edit-input" id="authPassword" type="password" placeholder="mind. 6 Zeichen">
+      <div id="loginError" class="login-error" style="display:none;"></div>
+      <button class="btn primary login-btn-full" id="loginBtn" style="margin-top:14px;">Anmelden</button>
+      <button class="btn login-btn-full" id="signupBtn" style="margin-top:8px;">Neues Konto anlegen</button>
+      <div class="login-hint" style="margin-top:14px;">Auf jedem weiteren Gerät mit denselben Zugangsdaten anmelden — alle Belege sind dann überall verfügbar.</div>
+      <button class="link-btn" id="showCloudConfig">Cloud-Verbindung ändern</button>
+    </div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
   <header class="top">
     <div>
       <span class="eyebrow">Reisekosten · Belegerfassung</span>
@@ -153,24 +212,19 @@
     </div>
   </header>
 
-  <div id="apiWarning" class="warn-banner" style="display:none;">
-    ⚠ Kein API-Key hinterlegt. Öffne <b>⚙ Einstellungen</b> und trage deinen Anthropic-API-Key ein, um Belege scannen zu können.
-  </div>
-
   <div class="topbar-btns">
     <button class="gear-btn" id="toggleSettings">⚙ Einstellungen</button>
     <button class="gear-btn" id="toggleManager">🏷 Kategorien</button>
   </div>
 
   <div class="panel" id="settingsPanel" style="display:none;">
-    <h3>Einstellungen</h3>
-    <span class="field-lbl">Anthropic API-Key</span>
-    <input class="edit-input" id="apiKeyInput" type="password" placeholder="sk-ant-...">
-    <div class="row-actions" style="margin-top:10px;">
-      <button class="btn small primary" id="saveApiKey">Speichern</button>
-      <button class="btn small" id="clearApiKey">Entfernen</button>
+    <h3>Konto</h3>
+    <div class="hint" style="margin-top:0;">Angemeldet als <b id="loggedInEmail" style="color:var(--accent-bright);"></b> — Belege werden automatisch zwischen all deinen Geräten synchronisiert.</div>
+    <div class="row-actions" style="margin-top:10px;justify-content:flex-start;">
+      <button class="btn small" id="logoutBtn">Abmelden</button>
+      <button class="btn small" id="resetCloudBtn">Cloud-Verbindung zurücksetzen</button>
     </div>
-    <div class="hint">Der Key wird ausschließlich lokal auf diesem Gerät gespeichert (localStorage) und nirgendwo sonst hin übertragen — außer direkt an api.anthropic.com beim Scannen eines Belegs. Erstellen unter <span style="color:var(--accent-bright)">console.anthropic.com</span> → API Keys.</div>
+    <div class="hint" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">🔒 <b style="color:var(--accent-bright)">Der Anthropic-API-Key liegt sicher auf dem Server</b> und ist in dieser App nicht enthalten. Das Auslesen der Belege läuft über deine Supabase-Funktion, die den Key serverseitig ergänzt — er kann aus dem Browser weder ausgelesen noch von Fremden verwendet werden.</div>
   </div>
 
   <div class="panel" id="catManager" style="display:none;"></div>
@@ -209,6 +263,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 const DEFAULT_CATEGORIES = ["Verpflegung","Hotel","Treibstoff","Sonstiges"];
 const KNOWN_ICONS = {Verpflegung:"🍽",Hotel:"🏨",Treibstoff:"⛽",Sonstiges:"📎"};
@@ -271,44 +326,247 @@ async function idbDelete(key){
   });
 }
 
-// ---------- API key (localStorage, device-only) ----------
-function getApiKey(){ return localStorage.getItem('anthropic_api_key') || ""; }
-function setApiKey(k){ localStorage.setItem('anthropic_api_key', k); }
-function clearApiKeyFn(){ localStorage.removeItem('anthropic_api_key'); }
-
+// ---------- Login-Gate: steuert, ob Login-Screen oder App sichtbar ist ----------
 function updateApiWarning(){
-  document.getElementById('apiWarning').style.display = getApiKey() ? 'none' : 'block';
+  const loginScreen = document.getElementById('loginScreen');
+  const app = document.getElementById('app');
+  if(cloudReady()){
+    loginScreen.style.display = 'none';
+    app.style.display = 'block';
+  } else {
+    loginScreen.style.display = 'flex';
+    app.style.display = 'none';
+    // Innerhalb des Login-Screens: erst Cloud-Config, dann Anmeldeformular
+    const needSetup = !cloudConfigured();
+    document.getElementById('loginSetupNeeded').style.display = needSetup ? 'block' : 'none';
+    document.getElementById('loginFormBlock').style.display = needSetup ? 'none' : 'block';
+  }
+}
+
+function showLoginError(msg){
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+// Benutzername -> interne E-Mail-Adresse (Supabase verlangt E-Mail-Format)
+const USER_DOMAIN = 'belege.local';
+function usernameToEmail(input){
+  const v = (input || '').trim().toLowerCase();
+  if(!v) return '';
+  if(v.includes('@')) return v; // echte E-Mail ebenfalls erlaubt
+  return v.replace(/[^a-z0-9._-]/g,'') + '@' + USER_DOMAIN;
+}
+function emailToUsername(email){
+  if(!email) return '';
+  return email.endsWith('@'+USER_DOMAIN) ? email.replace('@'+USER_DOMAIN,'') : email;
+}
+
+// ---------- Cloud sync (Supabase) ----------
+const APP_NS = 'belegverwaltung';
+let sb = null;
+let currentUser = null;
+
+function getSupabaseConfig(){
+  return {
+    url: localStorage.getItem('supabase_url') || "",
+    key: localStorage.getItem('supabase_anon_key') || ""
+  };
+}
+function cloudConfigured(){ const c = getSupabaseConfig(); return !!(c.url && c.key); }
+function cloudReady(){ return !!sb && !!currentUser; }
+
+function initSupabase(){
+  const { url, key } = getSupabaseConfig();
+  if(!url || !key || !window.supabase) return;
+  sb = window.supabase.createClient(url, key);
+  sb.auth.onAuthStateChange((_event, session)=>{
+    currentUser = session ? session.user : null;
+    updateAuthUI();
+    if(currentUser) reloadAllFromCloud();
+  });
+  sb.auth.getUser().then(({data})=>{
+    currentUser = data ? data.user : null;
+    updateAuthUI();
+    if(currentUser) reloadAllFromCloud();
+  });
+}
+
+function updateAuthUI(){
+  if(currentUser){
+    const el = document.getElementById('loggedInEmail');
+    if(el) el.textContent = emailToUsername(currentUser.email || "");
+  }
+  updateApiWarning();
+}
+
+async function reloadAllFromCloud(){
+  await loadCategories();
+  await loadIndex();
+  render();
+}
+
+// Unified storage: cloud (Supabase) when logged in, always cached locally (IndexedDB) for offline use
+async function storeGet(key){
+  if(cloudReady()){
+    try{
+      const { data, error } = await sb.from('kv_store').select('value').eq('app', APP_NS).eq('key', key).maybeSingle();
+      if(error) throw error;
+      const val = data ? data.value : null;
+      if(val !== null) await idbSet(key, val);
+      return val;
+    }catch(e){
+      console.warn('Cloud-Lesefehler, nutze lokalen Cache:', e);
+      return await idbGet(key);
+    }
+  }
+  return await idbGet(key);
+}
+async function storeSet(key, value){
+  await idbSet(key, value);
+  if(cloudReady()){
+    try{
+      await sb.from('kv_store').upsert({ app: APP_NS, key, value }, { onConflict: 'user_id,app,key' });
+    }catch(e){
+      console.warn('Cloud-Schreibfehler, nur lokal gespeichert:', e);
+    }
+  }
+}
+async function storeDelete(key){
+  await idbDelete(key);
+  if(cloudReady()){
+    try{ await sb.from('kv_store').delete().eq('app', APP_NS).eq('key', key); }
+    catch(e){ console.warn('Cloud-Löschfehler:', e); }
+  }
 }
 
 // ---------- Persistence ----------
 async function loadCategories(){
-  const res = await idbGet('categories');
+  const res = await storeGet('categories');
   categories = res || [...DEFAULT_CATEGORIES];
-  if(!res) await idbSet('categories', categories);
+  if(!res) await storeSet('categories', categories);
 }
-async function saveCategories(){ await idbSet('categories', categories); }
+async function saveCategories(){ await storeSet('categories', categories); }
 
 async function loadIndex(){
-  const res = await idbGet('receipts_index');
+  const res = await storeGet('receipts_index');
   receipts = res || [];
 }
-async function saveIndex(){ await idbSet('receipts_index', receipts); }
+async function saveIndex(){ await storeSet('receipts_index', receipts); }
 
 async function getImage(id){
   if(imgCache[id]) return imgCache[id];
-  const res = await idbGet('img_'+id);
+  const res = await storeGet('img_'+id);
   if(res){ imgCache[id] = res; return res; }
   return null;
 }
 
 async function init(){
+  const { url, key } = getSupabaseConfig();
+  if(url) document.getElementById('supabaseUrlInput').value = url;
+  if(key) document.getElementById('supabaseKeyInput').value = key;
+  initSupabase();
+
   await loadCategories();
   await loadIndex();
-  const savedKey = getApiKey();
-  if(savedKey) document.getElementById('apiKeyInput').value = savedKey;
   updateApiWarning();
   render();
 }
+
+// ---------- Cloud sync UI handlers ----------
+document.getElementById('saveSupabaseConfig').addEventListener('click', ()=>{
+  const url = document.getElementById('supabaseUrlInput').value.trim().replace(/\/$/,'');
+  const key = document.getElementById('supabaseKeyInput').value.trim();
+  if(!url || !key){ alert('Bitte URL und Key eintragen.'); return; }
+  localStorage.setItem('supabase_url', url);
+  localStorage.setItem('supabase_anon_key', key);
+  initSupabase();
+  updateApiWarning();
+});
+
+document.getElementById('showCloudConfig').addEventListener('click', ()=>{
+  document.getElementById('loginSetupNeeded').style.display = 'block';
+  document.getElementById('loginFormBlock').style.display = 'none';
+});
+
+function readCredentials(){
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value;
+  if(!username){ showLoginError('Bitte Benutzernamen eingeben.'); return null; }
+  if(password.length < 6){ showLoginError('Das Passwort muss mindestens 6 Zeichen haben.'); return null; }
+  const email = usernameToEmail(username);
+  if(!email.includes('@') || email.startsWith('@')){ showLoginError('Ungültiger Benutzername. Erlaubt sind Buchstaben, Zahlen, . _ -'); return null; }
+  return { email, password };
+}
+
+function translateAuthError(msg){
+  const m = (msg||'').toLowerCase();
+  if(m.includes('invalid login')) return 'Benutzername oder Passwort ist falsch.';
+  if(m.includes('already registered') || m.includes('already been registered')) return 'Dieser Benutzername ist bereits vergeben. Bitte melde dich an.';
+  if(m.includes('email address') && m.includes('invalid')) return 'Benutzername enthält ungültige Zeichen.';
+  if(m.includes('password')) return 'Passwort zu kurz (mindestens 6 Zeichen).';
+  if(m.includes('failed to fetch')) return 'Keine Verbindung zum Server. Internet prüfen.';
+  return msg || 'Anmeldung fehlgeschlagen.';
+}
+
+document.getElementById('signupBtn').addEventListener('click', async ()=>{
+  showLoginError('');
+  if(!sb){ showLoginError('Zuerst Cloud-Verbindung einrichten.'); return; }
+  const creds = readCredentials();
+  if(!creds) return;
+  const btn = document.getElementById('signupBtn');
+  btn.disabled = true; btn.textContent = 'Wird angelegt…';
+  const { data, error } = await sb.auth.signUp(creds);
+  btn.disabled = false; btn.textContent = 'Neues Konto anlegen';
+  if(error){ showLoginError(translateAuthError(error.message)); return; }
+  if(data && data.session){
+    showLoginError('');
+  } else {
+    // Falls E-Mail-Bestätigung aktiv ist, direkt Anmeldung versuchen
+    const { error: loginErr } = await sb.auth.signInWithPassword(creds);
+    if(loginErr) showLoginError('Konto angelegt. Bitte in Supabase unter Authentication → Email die Option „Confirm email" deaktivieren, dann anmelden.');
+  }
+});
+
+document.getElementById('loginBtn').addEventListener('click', async ()=>{
+  showLoginError('');
+  if(!sb){ showLoginError('Zuerst Cloud-Verbindung einrichten.'); return; }
+  const creds = readCredentials();
+  if(!creds) return;
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Anmelden…';
+  const { error } = await sb.auth.signInWithPassword(creds);
+  btn.disabled = false; btn.textContent = 'Anmelden';
+  if(error) showLoginError(translateAuthError(error.message));
+});
+
+// Enter-Taste im Passwortfeld löst Anmeldung aus
+document.getElementById('authPassword').addEventListener('keydown', e=>{
+  if(e.key === 'Enter') document.getElementById('loginBtn').click();
+});
+document.getElementById('authUsername').addEventListener('keydown', e=>{
+  if(e.key === 'Enter') document.getElementById('authPassword').focus();
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+  if(!confirm('Wirklich abmelden?')) return;
+  if(sb) await sb.auth.signOut();
+  currentUser = null;
+  receipts = []; categories = [...DEFAULT_CATEGORIES];
+  document.getElementById('authPassword').value = '';
+  settingsOpen = false;
+  document.getElementById('settingsPanel').style.display = 'none';
+  updateAuthUI();
+});
+
+document.getElementById('resetCloudBtn').addEventListener('click', async ()=>{
+  if(!confirm('Cloud-Verbindung zurücksetzen? Du musst URL und Key danach neu eintragen.')) return;
+  if(sb) await sb.auth.signOut();
+  localStorage.removeItem('supabase_url');
+  localStorage.removeItem('supabase_anon_key');
+  sb = null; currentUser = null;
+  updateApiWarning();
+});
 
 // ---------- Image compression ----------
 function fileToCompressedJpeg(file, maxW=900, quality=0.72){
@@ -363,75 +621,37 @@ function isPdf(file){
 }
 
 // ---------- AI extraction (uses YOUR OWN Anthropic API key) ----------
-function buildExtractionPrompt(){
-  const catList = categories.map(c=>`"${c}"`).join(" | ");
-  return `Du bekommst ein oder mehrere Fotos/Seiten EINES EINZELNEN Kassenbelegs oder EINER Rechnung von einer Geschäftsreise (bei mehrseitigen PDF-Rechnungen z.B. Deckblatt, Positionsliste, Summenseite). Werte ALLE gegebenen Seiten gemeinsam als zusammenhängendes Dokument aus — z.B. steht der Gesamtbetrag oft erst auf der letzten Seite. Extrahiere folgende Angaben und antworte AUSSCHLIESSLICH mit einem reinen JSON-Objekt, ohne Erklärung, ohne Markdown-Codeblock:
-
-{
-  "datum": "TT.MM.JJJJ",
-  "unternehmen": "Name des Geschäfts/Restaurants/Hotels/Tankstelle",
-  "betrag_original": 12.34,
-  "waehrung_original": "EUR",
-  "kategorie": "eine der folgenden Kategorien",
-  "kurs_zu_eur": 1.0,
-  "betrag_eur": 12.34,
-  "unsicher": false,
-  "hinweis": ""
-}
-
-Für "kategorie" MUSS exakt einer dieser Werte verwendet werden: ${catList}
-Wähle die inhaltlich am besten passende Kategorie. Wenn keine wirklich passt, nimm die Kategorie, die am ehesten "Sonstiges" oder "Verschiedenes" entspricht (bzw. die letzte in der Liste, falls keine so heißt).
-
-Wenn die Währung bereits EUR ist: kurs_zu_eur = 1.0 und betrag_eur = betrag_original.
-Wenn die Währung NICHT EUR ist: schätze den ungefähren aktuellen Wechselkurs anhand deines Wissens, berechne betrag_eur = betrag_original * kurs_zu_eur (auf 2 Nachkommastellen), und setze "hinweis" auf "Wechselkurs geschätzt, bitte prüfen".
-Wenn ein Feld nicht lesbar ist, setze es auf null und "unsicher": true, mit kurzem Hinweis warum.
-Antworte NUR mit dem JSON-Objekt, keinem weiteren Text.`;
-}
-
+// Der Prompt und der Anthropic-Key liegen jetzt SERVERSEITIG in der Edge Function.
+// Die App sendet nur die Bilder + Kategorienamen an die eigene Supabase-Funktion.
 async function extractReceiptData(base64Images){
-  const apiKey = getApiKey();
-  if(!apiKey) throw new Error("Kein API-Key hinterlegt");
-  const imageBlocks = base64Images.map(b64 => ({type:"image", source:{type:"base64", media_type:"image/jpeg", data: b64}}));
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  if(!cloudReady()) throw new Error("Nicht angemeldet");
+  const { data: sessionData } = await sb.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if(!accessToken) throw new Error("Sitzung abgelaufen - bitte neu anmelden");
+
+  const { url } = getSupabaseConfig();
+  const response = await fetch(url + "/functions/v1/scan-receipt", {
     method: "POST",
     headers: {
-      "Content-Type":"application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + accessToken
     },
-    body: JSON.stringify({
-      model: "claude-sonnet-5",
-      max_tokens: 1000,
-      messages: [{
-        role: "user",
-        content: [
-          ...imageBlocks,
-          {type:"text", text: buildExtractionPrompt()}
-        ]
-      }]
-    })
+    body: JSON.stringify({ images: base64Images, categories })
   });
-  if(!response.ok){
-    const errText = await response.text();
-    throw new Error("API-Fehler: " + response.status + " " + errText.slice(0,200));
-  }
-  const data = await response.json();
-  const textBlock = (data.content||[]).find(b=>b.type==="text");
-  if(!textBlock) throw new Error("Keine Antwort erhalten");
-  let jsonStr = textBlock.text.trim();
-  jsonStr = jsonStr.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-  return JSON.parse(jsonStr);
+
+  const data = await response.json().catch(()=>({ error: "Ungueltige Serverantwort" }));
+  if(!response.ok) throw new Error(data.error || ("Fehler " + response.status));
+  return data;
 }
 
 // ---------- Upload handling ----------
 const queueEl = document.getElementById('queue');
 
 async function handleFiles(fileList){
-  if(!getApiKey()){
+  if(!cloudReady()){
     settingsOpen = true;
     document.getElementById('settingsPanel').style.display='block';
-    alert('Bitte zuerst deinen API-Key unter „Einstellungen" eintragen.');
+    alert('Bitte zuerst unter „Einstellungen" mit Supabase verbinden und anmelden.');
     return;
   }
   const files = Array.from(fileList).filter(f=>f.type.startsWith('image/') || isPdf(f));
@@ -497,17 +717,6 @@ document.getElementById('toggleSettings').addEventListener('click', ()=>{
   settingsOpen = !settingsOpen;
   document.getElementById('settingsPanel').style.display = settingsOpen ? 'block' : 'none';
   if(settingsOpen){ managerOpen=false; document.getElementById('catManager').style.display='none'; }
-});
-document.getElementById('saveApiKey').addEventListener('click', ()=>{
-  const val = document.getElementById('apiKeyInput').value.trim();
-  setApiKey(val);
-  updateApiWarning();
-  alert('API-Key gespeichert.');
-});
-document.getElementById('clearApiKey').addEventListener('click', ()=>{
-  clearApiKeyFn();
-  document.getElementById('apiKeyInput').value='';
-  updateApiWarning();
 });
 
 // ---------- Category management ----------
