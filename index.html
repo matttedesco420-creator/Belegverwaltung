@@ -56,6 +56,12 @@
     background:var(--danger-dim);border:1px solid var(--danger);color:#f0c4b8;
     font-size:11.5px;padding:8px 10px;border-radius:5px;margin-top:12px;line-height:1.4;
   }
+  .acct-msg{
+    font-size:11.5px;padding:8px 10px;border-radius:5px;margin-top:8px;line-height:1.4;
+    background:var(--danger-dim);border:1px solid var(--danger);color:#f0c4b8;
+  }
+  .acct-msg.ok{background:var(--accent-dim);border-color:var(--accent);color:var(--accent-bright);}
+
   .link-btn{
     background:none;border:none;color:var(--text-faint);font-family:var(--mono);font-size:10.5px;
     text-decoration:underline;cursor:pointer;padding:0;margin-top:14px;display:block;width:100%;text-align:center;
@@ -186,15 +192,36 @@
     </div>
 
     <div id="loginFormBlock" style="display:none;">
-      <span class="field-lbl">Benutzername</span>
+      <span class="field-lbl">Benutzername oder E-Mail</span>
       <input class="edit-input" id="authUsername" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="z. B. matthi">
       <span class="field-lbl" style="margin-top:10px;">Passwort</span>
       <input class="edit-input" id="authPassword" type="password" placeholder="mind. 6 Zeichen">
       <div id="loginError" class="login-error" style="display:none;"></div>
       <button class="btn primary login-btn-full" id="loginBtn" style="margin-top:14px;">Anmelden</button>
       <button class="btn login-btn-full" id="signupBtn" style="margin-top:8px;">Neues Konto anlegen</button>
-      <div class="login-hint" style="margin-top:14px;">Auf jedem weiteren Gerät mit denselben Zugangsdaten anmelden — alle Belege sind dann überall verfügbar.</div>
+      <button class="link-btn" id="showResetBtn">Passwort vergessen?</button>
+      <div class="login-hint" style="margin-top:10px;">Auf jedem weiteren Gerät mit denselben Zugangsdaten anmelden — alle Belege sind dann überall verfügbar.</div>
       <button class="link-btn" id="showCloudConfig">Cloud-Verbindung ändern</button>
+    </div>
+
+    <div id="resetRequestBlock" style="display:none;">
+      <div class="login-hint" style="margin-bottom:12px;">Gib die <b style="color:var(--accent-bright)">E-Mail-Adresse</b> deines Kontos ein. Wir schicken dir einen Link zum Zurücksetzen.</div>
+      <span class="field-lbl">E-Mail-Adresse</span>
+      <input class="edit-input" id="resetEmail" type="email" autocapitalize="none" spellcheck="false" placeholder="du@beispiel.de">
+      <div id="resetMsg" class="login-error" style="display:none;"></div>
+      <button class="btn primary login-btn-full" id="sendResetBtn" style="margin-top:14px;">Link senden</button>
+      <button class="link-btn" id="backToLoginBtn">Zurück zur Anmeldung</button>
+      <div class="login-hint" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">Bei einem reinen <b>Benutzernamen</b> ohne E-Mail ist kein Versand möglich. Das Passwort lässt sich dann im Supabase-Dashboard unter <i>Authentication → Users</i> über das Drei-Punkte-Menü der Zeile zurücksetzen.</div>
+    </div>
+
+    <div id="newPasswordBlock" style="display:none;">
+      <div class="login-hint" style="margin-bottom:12px;">Wähle jetzt dein neues Passwort.</div>
+      <span class="field-lbl">Neues Passwort</span>
+      <input class="edit-input" id="newPassword1" type="password" placeholder="mind. 6 Zeichen">
+      <span class="field-lbl" style="margin-top:10px;">Neues Passwort wiederholen</span>
+      <input class="edit-input" id="newPassword2" type="password" placeholder="nochmal eingeben">
+      <div id="newPasswordMsg" class="login-error" style="display:none;"></div>
+      <button class="btn primary login-btn-full" id="saveNewPasswordBtn" style="margin-top:14px;">Passwort speichern</button>
     </div>
   </div>
 </div>
@@ -219,11 +246,29 @@
 
   <div class="panel" id="settingsPanel" style="display:none;">
     <h3>Konto</h3>
-    <div class="hint" style="margin-top:0;">Angemeldet als <b id="loggedInEmail" style="color:var(--accent-bright);"></b> — Belege werden automatisch zwischen all deinen Geräten synchronisiert.</div>
-    <div class="row-actions" style="margin-top:10px;justify-content:flex-start;">
+    <div class="hint" style="margin-top:0;">Angemeldet als <b id="loggedInEmail" style="color:var(--accent-bright);"></b></div>
+
+    <div style="margin-top:16px;">
+      <span class="field-lbl">Anmeldename ändern (Benutzername oder E-Mail)</span>
+      <input class="edit-input" id="changeNameInput" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="z. B. matthi oder du@beispiel.de">
+      <div id="changeNameMsg" class="acct-msg" style="display:none;"></div>
+      <button class="btn small primary" id="changeNameBtn" style="margin-top:8px;">Anmeldename speichern</button>
+      <div class="hint" style="margin-top:6px;">Mit einer echten E-Mail-Adresse kannst du dein Passwort später selbst zurücksetzen. Ein reiner Benutzername erlaubt das nicht.</div>
+    </div>
+
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:14px;">
+      <span class="field-lbl">Passwort ändern</span>
+      <input class="edit-input" id="changePw1" type="password" placeholder="Neues Passwort (mind. 6 Zeichen)">
+      <input class="edit-input" id="changePw2" type="password" placeholder="Neues Passwort wiederholen" style="margin-top:8px;">
+      <div id="changePwMsg" class="acct-msg" style="display:none;"></div>
+      <button class="btn small primary" id="changePwBtn" style="margin-top:8px;">Passwort speichern</button>
+    </div>
+
+    <div class="row-actions" style="margin-top:20px;justify-content:flex-start;border-top:1px solid var(--border);padding-top:14px;">
       <button class="btn small" id="logoutBtn">Abmelden</button>
       <button class="btn small" id="resetCloudBtn">Cloud-Verbindung zurücksetzen</button>
     </div>
+
     <div class="hint" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">🔒 <b style="color:var(--accent-bright)">Der Anthropic-API-Key liegt sicher auf dem Server</b> und ist in dieser App nicht enthalten. Das Auslesen der Belege läuft über deine Supabase-Funktion, die den Key serverseitig ergänzt — er kann aus dem Browser weder ausgelesen noch von Fremden verwendet werden.</div>
   </div>
 
@@ -266,6 +311,15 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 const DEFAULT_CATEGORIES = ["Verpflegung","Hotel","Treibstoff","Sonstiges"];
+
+// ===== FEST HINTERLEGTE CLOUD-VERBINDUNG =====
+// Beide Werte sind fuer den Browser bestimmt und unbedenklich hier sichtbar:
+// Der Zugriff auf Daten wird ueber Login + Row Level Security geschuetzt.
+// Key findest du unter: Project Settings -> API Keys (Publishable bzw. anon)
+const BUILTIN_SUPABASE_URL = "https://rwcozxlkepryoxnyzglt.supabase.co";
+const BUILTIN_SUPABASE_KEY = "const BUILTIN_SUPABASE_KEY = "sb_publishable_ABC123xyz...";
+// =============================================
+
 const KNOWN_ICONS = {Verpflegung:"🍽",Hotel:"🏨",Treibstoff:"⛽",Sonstiges:"📎"};
 function getIcon(cat){ return KNOWN_ICONS[cat] || "📁"; }
 
@@ -326,21 +380,38 @@ async function idbDelete(key){
   });
 }
 
-// ---------- Login-Gate: steuert, ob Login-Screen oder App sichtbar ist ----------
+// ---------- Login-Gate: steuert, welche Ansicht sichtbar ist ----------
+let loginView = 'login'; // 'login' | 'reset' | 'newPassword'
+let recoveryMode = false; // true, wenn per Wiederherstellungslink geoeffnet
+
 function updateApiWarning(){
   const loginScreen = document.getElementById('loginScreen');
   const app = document.getElementById('app');
+
+  // Nach Klick auf den Wiederherstellungslink: Passwort-Neu-Setzen erzwingen
+  if(recoveryMode){
+    loginScreen.style.display = 'flex';
+    app.style.display = 'none';
+    document.getElementById('loginSetupNeeded').style.display = 'none';
+    document.getElementById('loginFormBlock').style.display = 'none';
+    document.getElementById('resetRequestBlock').style.display = 'none';
+    document.getElementById('newPasswordBlock').style.display = 'block';
+    return;
+  }
+
   if(cloudReady()){
     loginScreen.style.display = 'none';
     app.style.display = 'block';
-  } else {
-    loginScreen.style.display = 'flex';
-    app.style.display = 'none';
-    // Innerhalb des Login-Screens: erst Cloud-Config, dann Anmeldeformular
-    const needSetup = !cloudConfigured();
-    document.getElementById('loginSetupNeeded').style.display = needSetup ? 'block' : 'none';
-    document.getElementById('loginFormBlock').style.display = needSetup ? 'none' : 'block';
+    return;
   }
+
+  loginScreen.style.display = 'flex';
+  app.style.display = 'none';
+  const needSetup = !cloudConfigured();
+  document.getElementById('loginSetupNeeded').style.display = needSetup ? 'block' : 'none';
+  document.getElementById('loginFormBlock').style.display = (!needSetup && loginView==='login') ? 'block' : 'none';
+  document.getElementById('resetRequestBlock').style.display = (!needSetup && loginView==='reset') ? 'block' : 'none';
+  document.getElementById('newPasswordBlock').style.display = 'none';
 }
 
 function showLoginError(msg){
@@ -367,10 +438,21 @@ const APP_NS = 'belegverwaltung';
 let sb = null;
 let currentUser = null;
 
+function normalizeSupabaseUrl(raw){
+  let u = (raw || '').trim();
+  if(!u) return '';
+  // Versehentlich mitkopierte Pfade entfernen (z.B. /rest/v1/ aus dem Dashboard)
+  u = u.replace(/\/(rest|auth|storage|functions|realtime)\/v\d+\/?$/i, '');
+  return u.replace(/\/+$/,'');
+}
+
 function getSupabaseConfig(){
+  const storedUrl = localStorage.getItem('supabase_url');
+  const storedKey = localStorage.getItem('supabase_anon_key');
+  const keyLooksSet = BUILTIN_SUPABASE_KEY && !BUILTIN_SUPABASE_KEY.startsWith('HIER_');
   return {
-    url: localStorage.getItem('supabase_url') || "",
-    key: localStorage.getItem('supabase_anon_key') || ""
+    url: normalizeSupabaseUrl(storedUrl || BUILTIN_SUPABASE_URL || ""),
+    key: storedKey || (keyLooksSet ? BUILTIN_SUPABASE_KEY : "")
   };
 }
 function cloudConfigured(){ const c = getSupabaseConfig(); return !!(c.url && c.key); }
@@ -380,10 +462,16 @@ function initSupabase(){
   const { url, key } = getSupabaseConfig();
   if(!url || !key || !window.supabase) return;
   sb = window.supabase.createClient(url, key);
-  sb.auth.onAuthStateChange((_event, session)=>{
+  sb.auth.onAuthStateChange((event, session)=>{
+    if(event === 'PASSWORD_RECOVERY'){
+      recoveryMode = true;
+      currentUser = session ? session.user : null;
+      updateApiWarning();
+      return;
+    }
     currentUser = session ? session.user : null;
     updateAuthUI();
-    if(currentUser) reloadAllFromCloud();
+    if(currentUser && !recoveryMode) reloadAllFromCloud();
   });
   sb.auth.getUser().then(({data})=>{
     currentUser = data ? data.user : null;
@@ -462,6 +550,12 @@ async function getImage(id){
 }
 
 async function init(){
+  // Wiederherstellungslink erkennen (Supabase haengt #type=recovery an die URL)
+  const hash = window.location.hash || '';
+  if(hash.includes('type=recovery')){
+    recoveryMode = true;
+  }
+
   const { url, key } = getSupabaseConfig();
   if(url) document.getElementById('supabaseUrlInput').value = url;
   if(key) document.getElementById('supabaseKeyInput').value = key;
@@ -475,7 +569,7 @@ async function init(){
 
 // ---------- Cloud sync UI handlers ----------
 document.getElementById('saveSupabaseConfig').addEventListener('click', ()=>{
-  const url = document.getElementById('supabaseUrlInput').value.trim().replace(/\/$/,'');
+  const url = normalizeSupabaseUrl(document.getElementById('supabaseUrlInput').value);
   const key = document.getElementById('supabaseKeyInput').value.trim();
   if(!url || !key){ alert('Bitte URL und Key eintragen.'); return; }
   localStorage.setItem('supabase_url', url);
@@ -485,8 +579,89 @@ document.getElementById('saveSupabaseConfig').addEventListener('click', ()=>{
 });
 
 document.getElementById('showCloudConfig').addEventListener('click', ()=>{
+  const { url, key } = getSupabaseConfig();
+  document.getElementById('supabaseUrlInput').value = url || '';
+  document.getElementById('supabaseKeyInput').value = key || '';
   document.getElementById('loginSetupNeeded').style.display = 'block';
   document.getElementById('loginFormBlock').style.display = 'none';
+  document.getElementById('resetRequestBlock').style.display = 'none';
+});
+
+// ---------- Passwort vergessen ----------
+document.getElementById('showResetBtn').addEventListener('click', ()=>{
+  loginView = 'reset';
+  showLoginError('');
+  const typed = document.getElementById('authUsername').value.trim();
+  if(typed.includes('@')) document.getElementById('resetEmail').value = typed;
+  updateApiWarning();
+});
+
+document.getElementById('backToLoginBtn').addEventListener('click', ()=>{
+  loginView = 'login';
+  document.getElementById('resetMsg').style.display = 'none';
+  updateApiWarning();
+});
+
+function showResetMsg(msg, ok){
+  const el = document.getElementById('resetMsg');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+  el.style.background = ok ? 'var(--accent-dim)' : 'var(--danger-dim)';
+  el.style.borderColor = ok ? 'var(--accent)' : 'var(--danger)';
+  el.style.color = ok ? 'var(--accent-bright)' : '#f0c4b8';
+}
+
+document.getElementById('sendResetBtn').addEventListener('click', async ()=>{
+  if(!sb){ showResetMsg('Zuerst Cloud-Verbindung einrichten.', false); return; }
+  const email = document.getElementById('resetEmail').value.trim();
+  if(!email.includes('@')){
+    showResetMsg('Bitte eine vollständige E-Mail-Adresse eingeben. Reine Benutzernamen können nicht zurückgesetzt werden.', false);
+    return;
+  }
+  if(email.endsWith('@'+USER_DOMAIN)){
+    showResetMsg('An diese interne Adresse kann keine Mail zugestellt werden. Bitte im Supabase-Dashboard unter Authentication → Users zurücksetzen.', false);
+    return;
+  }
+  const btn = document.getElementById('sendResetBtn');
+  btn.disabled = true; btn.textContent = 'Wird gesendet…';
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  });
+  btn.disabled = false; btn.textContent = 'Link senden';
+  if(error){
+    showResetMsg(translateAuthError(error.message), false);
+  } else {
+    showResetMsg('Falls ein Konto mit dieser Adresse existiert, wurde ein Link verschickt. Bitte Postfach prüfen (auch Spam).', true);
+  }
+});
+
+// ---------- Neues Passwort setzen (nach Klick auf Wiederherstellungslink) ----------
+document.getElementById('saveNewPasswordBtn').addEventListener('click', async ()=>{
+  const p1 = document.getElementById('newPassword1').value;
+  const p2 = document.getElementById('newPassword2').value;
+  const msg = document.getElementById('newPasswordMsg');
+  const show = (t, ok)=>{
+    msg.textContent = t; msg.style.display = t ? 'block' : 'none';
+    msg.style.background = ok ? 'var(--accent-dim)' : 'var(--danger-dim)';
+    msg.style.borderColor = ok ? 'var(--accent)' : 'var(--danger)';
+    msg.style.color = ok ? 'var(--accent-bright)' : '#f0c4b8';
+  };
+  if(p1.length < 6){ show('Das Passwort muss mindestens 6 Zeichen haben.', false); return; }
+  if(p1 !== p2){ show('Die beiden Passwörter stimmen nicht überein.', false); return; }
+  const btn = document.getElementById('saveNewPasswordBtn');
+  btn.disabled = true; btn.textContent = 'Wird gespeichert…';
+  const { error } = await sb.auth.updateUser({ password: p1 });
+  btn.disabled = false; btn.textContent = 'Passwort speichern';
+  if(error){ show(translateAuthError(error.message), false); return; }
+  show('Passwort geändert. Du wirst angemeldet…', true);
+  recoveryMode = false;
+  history.replaceState(null, '', window.location.pathname);
+  setTimeout(async ()=>{
+    const { data } = await sb.auth.getUser();
+    currentUser = data ? data.user : null;
+    updateAuthUI();
+    if(currentUser) reloadAllFromCloud();
+  }, 800);
 });
 
 function readCredentials(){
@@ -504,9 +679,13 @@ function translateAuthError(msg){
   if(m.includes('invalid login')) return 'Benutzername oder Passwort ist falsch.';
   if(m.includes('already registered') || m.includes('already been registered')) return 'Dieser Benutzername ist bereits vergeben. Bitte melde dich an.';
   if(m.includes('email address') && m.includes('invalid')) return 'Benutzername enthält ungültige Zeichen.';
+  if(m.includes('email rate limit')) return 'E-Mail-Limit erreicht. In Supabase unter Authentication → Email die Option „Confirm email" ausschalten, dann erneut versuchen.';
+  if(m.includes('same_password') || m.includes('should be different')) return 'Das neue Passwort muss sich vom bisherigen unterscheiden.';
+  if(m.includes('reauthentication') || m.includes('recent')) return 'Aus Sicherheitsgründen bitte einmal abmelden, neu anmelden und dann erneut versuchen.';
+  if(m.includes('weak') || m.includes('pwned') || m.includes('leaked')) return 'Dieses Passwort gilt als unsicher. Bitte ein anderes wählen.';
   if(m.includes('password')) return 'Passwort zu kurz (mindestens 6 Zeichen).';
   if(m.includes('failed to fetch')) return 'Keine Verbindung zum Server. Internet prüfen.';
-  return msg || 'Anmeldung fehlgeschlagen.';
+  return msg || 'Vorgang fehlgeschlagen.';
 }
 
 document.getElementById('signupBtn').addEventListener('click', async ()=>{
@@ -514,6 +693,10 @@ document.getElementById('signupBtn').addEventListener('click', async ()=>{
   if(!sb){ showLoginError('Zuerst Cloud-Verbindung einrichten.'); return; }
   const creds = readCredentials();
   if(!creds) return;
+  const typed = document.getElementById('authUsername').value.trim();
+  if(!typed.includes('@')){
+    if(!confirm('Hinweis: Mit einem reinen Benutzernamen kann das Passwort später NICHT per E-Mail zurückgesetzt werden.\n\nMit einer echten E-Mail-Adresse ist das möglich.\n\nTrotzdem mit "'+typed+'" fortfahren?')) return;
+  }
   const btn = document.getElementById('signupBtn');
   btn.disabled = true; btn.textContent = 'Wird angelegt…';
   const { data, error } = await sb.auth.signUp(creds);
@@ -546,6 +729,66 @@ document.getElementById('authPassword').addEventListener('keydown', e=>{
 });
 document.getElementById('authUsername').addEventListener('keydown', e=>{
   if(e.key === 'Enter') document.getElementById('authPassword').focus();
+});
+
+// ---------- Kontoverwaltung ----------
+function showAcctMsg(elId, text, ok){
+  const el = document.getElementById(elId);
+  el.textContent = text;
+  el.style.display = text ? 'block' : 'none';
+  el.className = 'acct-msg' + (ok ? ' ok' : '');
+}
+
+document.getElementById('changeNameBtn').addEventListener('click', async ()=>{
+  showAcctMsg('changeNameMsg','',false);
+  if(!cloudReady()){ showAcctMsg('changeNameMsg','Nicht angemeldet.',false); return; }
+  const typed = document.getElementById('changeNameInput').value.trim();
+  if(!typed){ showAcctMsg('changeNameMsg','Bitte einen neuen Anmeldenamen eingeben.',false); return; }
+  const newEmail = usernameToEmail(typed);
+  if(newEmail === (currentUser.email||'').toLowerCase()){
+    showAcctMsg('changeNameMsg','Das ist bereits dein aktueller Anmeldename.',false); return;
+  }
+  const isReal = typed.includes('@') && !typed.endsWith('@'+USER_DOMAIN);
+  const warn = isReal
+    ? 'Anmeldename auf "'+typed+'" ändern?\n\nJe nach Supabase-Einstellung muss die Änderung per Bestätigungsmail freigegeben werden. Bis dahin gilt der alte Name.'
+    : 'Anmeldename auf "'+typed+'" ändern?\n\nAchtung: Ohne echte E-Mail-Adresse kannst du dein Passwort nicht selbst zurücksetzen.';
+  if(!confirm(warn)) return;
+
+  const btn = document.getElementById('changeNameBtn');
+  btn.disabled = true; btn.textContent = 'Wird gespeichert…';
+  const { data, error } = await sb.auth.updateUser({ email: newEmail });
+  btn.disabled = false; btn.textContent = 'Anmeldename speichern';
+
+  if(error){ showAcctMsg('changeNameMsg', translateAuthError(error.message), false); return; }
+
+  const applied = data && data.user && (data.user.email||'').toLowerCase() === newEmail;
+  if(applied){
+    currentUser = data.user;
+    updateAuthUI();
+    document.getElementById('changeNameInput').value = '';
+    showAcctMsg('changeNameMsg','Anmeldename geändert. Ab sofort meldest du dich mit "'+typed+'" an.', true);
+  } else {
+    showAcctMsg('changeNameMsg','Bestätigungsmail verschickt. Die Änderung wird erst nach dem Klick auf den Link wirksam — bis dahin gilt der bisherige Anmeldename.', true);
+  }
+});
+
+document.getElementById('changePwBtn').addEventListener('click', async ()=>{
+  showAcctMsg('changePwMsg','',false);
+  if(!cloudReady()){ showAcctMsg('changePwMsg','Nicht angemeldet.',false); return; }
+  const p1 = document.getElementById('changePw1').value;
+  const p2 = document.getElementById('changePw2').value;
+  if(p1.length < 6){ showAcctMsg('changePwMsg','Das Passwort muss mindestens 6 Zeichen haben.',false); return; }
+  if(p1 !== p2){ showAcctMsg('changePwMsg','Die beiden Passwörter stimmen nicht überein.',false); return; }
+
+  const btn = document.getElementById('changePwBtn');
+  btn.disabled = true; btn.textContent = 'Wird gespeichert…';
+  const { error } = await sb.auth.updateUser({ password: p1 });
+  btn.disabled = false; btn.textContent = 'Passwort speichern';
+
+  if(error){ showAcctMsg('changePwMsg', translateAuthError(error.message), false); return; }
+  document.getElementById('changePw1').value = '';
+  document.getElementById('changePw2').value = '';
+  showAcctMsg('changePwMsg','Passwort geändert. Auf anderen Geräten musst du dich künftig mit dem neuen Passwort anmelden.', true);
 });
 
 document.getElementById('logoutBtn').addEventListener('click', async ()=>{
@@ -716,7 +959,16 @@ dropzone.addEventListener('drop', e=>{ if(e.dataTransfer.files.length) handleFil
 document.getElementById('toggleSettings').addEventListener('click', ()=>{
   settingsOpen = !settingsOpen;
   document.getElementById('settingsPanel').style.display = settingsOpen ? 'block' : 'none';
-  if(settingsOpen){ managerOpen=false; document.getElementById('catManager').style.display='none'; }
+  if(settingsOpen){
+    managerOpen=false;
+    document.getElementById('catManager').style.display='none';
+    // Felder zuruecksetzen und aktuellen Namen vorschlagen
+    document.getElementById('changeNameInput').value = emailToUsername(currentUser ? currentUser.email : '');
+    document.getElementById('changePw1').value = '';
+    document.getElementById('changePw2').value = '';
+    showAcctMsg('changeNameMsg','',false);
+    showAcctMsg('changePwMsg','',false);
+  }
 });
 
 // ---------- Category management ----------
