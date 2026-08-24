@@ -461,6 +461,20 @@ function emailToUsername(email){
 const APP_NS = 'belegverwaltung';
 let sb = null;
 let currentUser = null;
+let cloudWriteOk = null; // null = noch unbekannt, true = ok, false = Fehler gemeldet
+
+function showSyncWarning(text){
+  let el = document.getElementById('syncWarning');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'syncWarning';
+    el.className = 'warn-banner';
+    const app = document.getElementById('app');
+    app.insertBefore(el, app.firstChild.nextSibling);
+  }
+  el.textContent = '⚠ ' + text;
+  el.style.display = 'block';
+}
 
 function normalizeSupabaseUrl(raw){
   let u = (raw || '').trim();
@@ -538,17 +552,27 @@ async function storeSet(key, value){
   await idbSet(key, value);
   if(cloudReady()){
     try{
-      await sb.from('kv_store').upsert({ app: APP_NS, key, value }, { onConflict: 'user_id,app,key' });
+      const { error } = await sb.from('kv_store')
+        .upsert({ user_id: currentUser.id, app: APP_NS, key, value }, { onConflict: 'user_id,app,key' });
+      if(error) throw error;
+      cloudWriteOk = true;
     }catch(e){
-      console.warn('Cloud-Schreibfehler, nur lokal gespeichert:', e);
+      console.error('Cloud-Schreibfehler:', e);
+      if(cloudWriteOk !== false){
+        cloudWriteOk = false;
+        showSyncWarning('Achtung: Speichern in der Cloud fehlgeschlagen. Daten liegen derzeit nur auf diesem Gerät. Bitte Belege per Excel-Export sichern.');
+      }
     }
   }
 }
 async function storeDelete(key){
   await idbDelete(key);
   if(cloudReady()){
-    try{ await sb.from('kv_store').delete().eq('app', APP_NS).eq('key', key); }
-    catch(e){ console.warn('Cloud-Löschfehler:', e); }
+    try{
+      await sb.from('kv_store').delete()
+        .eq('user_id', currentUser.id).eq('app', APP_NS).eq('key', key);
+    }
+    catch(e){ console.error('Cloud-Löschfehler:', e); }
   }
 }
 
