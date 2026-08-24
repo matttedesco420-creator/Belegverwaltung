@@ -701,14 +701,16 @@ function readCredentials(){
 function translateAuthError(msg){
   const m = (msg||'').toLowerCase();
   if(m.includes('invalid login')) return 'Benutzername oder Passwort ist falsch.';
-  if(m.includes('already registered') || m.includes('already been registered')) return 'Dieser Benutzername ist bereits vergeben. Bitte melde dich an.';
-  if(m.includes('email address') && m.includes('invalid')) return 'Benutzername enthält ungültige Zeichen.';
+  if(m.includes('already registered') || m.includes('already been registered')) return 'Dieser Anmeldename ist bereits vergeben.';
   if(m.includes('email rate limit')) return 'E-Mail-Limit erreicht. In Supabase unter Authentication → Email die Option „Confirm email" ausschalten, dann erneut versuchen.';
   if(m.includes('same_password') || m.includes('should be different')) return 'Das neue Passwort muss sich vom bisherigen unterscheiden.';
   if(m.includes('reauthentication') || m.includes('recent')) return 'Aus Sicherheitsgründen bitte einmal abmelden, neu anmelden und dann erneut versuchen.';
   if(m.includes('weak') || m.includes('pwned') || m.includes('leaked')) return 'Dieses Passwort gilt als unsicher. Bitte ein anderes wählen.';
-  if(m.includes('password')) return 'Passwort zu kurz (mindestens 6 Zeichen).';
+  if(m.includes('password') && m.includes('6')) return 'Passwort zu kurz (mindestens 6 Zeichen).';
   if(m.includes('failed to fetch')) return 'Keine Verbindung zum Server. Internet prüfen.';
+  if(m.includes('email') && m.includes('invalid')){
+    return 'Supabase hat diese Adresse abgelehnt. Meist fehlt der E-Mail-Versand: In Supabase unter Authentication → Email die Optionen „Confirm email" und „Secure email change" ausschalten. Alternativ die Adresse direkt im Dashboard unter Authentication → Users ändern. (Originalmeldung: ' + msg + ')';
+  }
   return msg || 'Vorgang fehlgeschlagen.';
 }
 
