@@ -254,6 +254,32 @@
   }
   .docs-empty{font-size:12px;color:var(--text-faint);font-style:italic;padding:14px 2px;}
 
+  /* --- Prüfen vor dem Speichern --- */
+  .review-card{
+    border-top:1px solid var(--border-bright);padding:14px 16px;background:var(--surface-2);
+  }
+  .review-title{
+    font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  }
+  .review-title .fname{color:var(--text-dim);text-transform:none;letter-spacing:0;font-size:11px;}
+  .review-body{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;}
+  .review-thumbs{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+  .review-thumbs img{
+    width:92px;border-radius:5px;border:1px solid var(--border-bright);cursor:zoom-in;display:block;
+  }
+  .review-fields{flex:1;min-width:200px;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .review-fields label{
+    display:flex;flex-direction:column;gap:4px;font-size:10.5px;font-family:var(--mono);
+    text-transform:uppercase;letter-spacing:0.06em;color:var(--text-faint);
+  }
+  .review-note{
+    font-size:11px;color:#d9a441;background:#211a0c;border:1px solid #4a3a1a;
+    padding:7px 9px;border-radius:5px;margin-top:10px;
+  }
+  .review-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+  @media (max-width:600px){ .review-fields{grid-template-columns:1fr;} }
+
   footer.foot{margin-top:26px;text-align:center;color:var(--text-faint);font-size:11px;font-family:var(--mono);}
 
   @media (max-width:560px){
@@ -378,6 +404,7 @@
       <input type="file" id="cameraInput" accept="image/*" capture="environment">
     </div>
     <div class="queue" id="queue"></div>
+    <div id="reviewArea"></div>
   </div>
 
   <div class="tabs-row">
@@ -639,11 +666,20 @@ async function reloadAllFromCloud(){
 async function storeGet(key){
   if(cloudReady()){
     try{
-      const { data, error } = await sb.from('kv_store').select('value').eq('app', APP_NS).eq('key', key).maybeSingle();
+      const { data, error } = await sb.from('kv_store').select('value').eq('user_id', currentUser.id).eq('app', APP_NS).eq('key', key).maybeSingle();
       if(error) throw error;
       const val = data ? data.value : null;
-      if(val !== null) await idbSet(key, val);
-      return val;
+      if(val !== null && val !== undefined){
+        await idbSet(key, val);
+        return val;
+      }
+      // In der Cloud (noch) nicht vorhanden -> lokale Kopie nutzen
+      // und, falls vorhanden, nachtraeglich in die Cloud hochladen
+      const local = await idbGet(key);
+      if(local !== null && local !== undefined){
+        storeSet(key, local);
+      }
+      return local;
     }catch(e){
       console.warn('Cloud-Lesefehler, nutze lokalen Cache:', e);
       return await idbGet(key);
@@ -696,11 +732,93 @@ async function loadIndex(){
 }
 async function saveIndex(){ await storeSet('receipts_index', receipts); }
 
-async function getImage(id){
+// ---------- Bilder in Supabase Storage ----------
+const BUCKET = 'belege';
+
+function base64ToBlob(b64, mime='image/jpeg'){
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=> resolve(String(r.result).split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+// Speichert alle Seiten eines Belegs. Rueckgabe: true = in der Cloud, false = nur lokal
+async function saveImages(id, images){
+  // Lokale Kopie immer anlegen (Offline-Nutzung)
+  await idbSet('img_'+id, { mime:'image/jpeg', pages: images });
+
+  if(!cloudReady()) return null;
+  try{
+    for(let i=0;i<images.length;i++){
+      const path = `${currentUser.id}/${id}/p${i}.jpg`;
+      const { error } = await sb.storage.from(BUCKET)
+        .upload(path, base64ToBlob(images[i]), { contentType:'image/jpeg', upsert:true });
+      if(error) throw error;
+    }
+    return true;
+  }catch(e){
+    console.error('Storage-Upload fehlgeschlagen:', e);
+    showSyncWarning('Beleg-Bild konnte nicht in die Cloud geladen werden ('+(e.message||'unbekannt')+'). Es liegt nur auf diesem Gerät.');
+    return false;
+  }
+}
+
+async function loadImages(id, pageCount){
   if(imgCache[id]) return imgCache[id];
-  const res = await storeGet('img_'+id);
-  if(res){ imgCache[id] = res; return res; }
-  return null;
+
+  // Zuerst lokal versuchen (schnell, offline-faehig)
+  const local = await idbGet('img_'+id);
+  if(local && (local.pages||[]).length){
+    imgCache[id] = local;
+    // Fehlt es in der Cloud? Dann nachtraeglich hochladen.
+    if(cloudReady()) saveImages(id, local.pages);
+    return local;
+  }
+
+  if(!cloudReady()) return null;
+  try{
+    const pages = [];
+    const max = pageCount && pageCount>0 ? pageCount : 8;
+    for(let i=0;i<max;i++){
+      const path = `${currentUser.id}/${id}/p${i}.jpg`;
+      const { data, error } = await sb.storage.from(BUCKET).download(path);
+      if(error || !data){ if(i===0 && !pageCount) continue; break; }
+      pages.push(await blobToBase64(data));
+    }
+    if(!pages.length) return null;
+    const result = { mime:'image/jpeg', pages };
+    imgCache[id] = result;
+    await idbSet('img_'+id, result);
+    return result;
+  }catch(e){
+    console.warn('Bild konnte nicht geladen werden:', e);
+    return null;
+  }
+}
+
+async function deleteImages(id, pageCount){
+  await idbDelete('img_'+id);
+  delete imgCache[id];
+  if(!cloudReady()) return;
+  try{
+    const max = pageCount && pageCount>0 ? pageCount : 8;
+    const paths = [];
+    for(let i=0;i<max;i++) paths.push(`${currentUser.id}/${id}/p${i}.jpg`);
+    await sb.storage.from(BUCKET).remove(paths);
+  }catch(e){ console.warn('Bild-Löschfehler:', e); }
+}
+
+async function getImage(id){
+  const rec = receipts.find(r=>r.id===id);
+  return await loadImages(id, rec ? rec.seiten : null);
 }
 
 async function init(){
@@ -1098,19 +1216,93 @@ async function handleFiles(fileList){
         hinweis: truncated ? ((extracted.hinweis||'') + ` (Dokument hat ${pageCount} Seiten, nur die ersten ${MAX_PDF_PAGES} wurden gelesen)`).trim() : (extracted.hinweis || "")
       };
 
-      const imgSaved = await storeSet('img_'+id, {mime:'image/jpeg', pages: images});
-      receipts.push(rec);
-      await saveIndex();
-      render();
-
       const pageNote = pageCount>1 ? ` · ${pageCount} Seiten` : '';
-      const imgNote = imgSaved === false ? ' · ⚠ Bild nur lokal' : '';
-      row.querySelector('.queue-status').outerHTML = `<span class="queue-status ${imgSaved===false?'err':'ok'}">✓ ${kategorie}${pageNote}${imgNote}${rec.unsicher ? ' (prüfen)' : ''}</span>`;
+      row.querySelector('.queue-status').outerHTML = `<span class="queue-status ok">✓ gelesen${pageNote} — bitte prüfen</span>`;
+
+      // Noch NICHT speichern: erst zur Bestaetigung anzeigen
+      addToReview(rec, images, file.name);
     }catch(err){
       console.error(err);
       const statusEl = row.querySelector('.queue-status');
       if(statusEl) statusEl.outerHTML = `<span class="queue-status err" title="${(err.message||'').replace(/"/g,'')}">✕ Fehler</span>`;
     }
+  }
+}
+
+// ---------- Prüfen und Speichern ----------
+const pendingReviews = {}; // id -> {rec, images, filename}
+
+function addToReview(rec, images, filename){
+  pendingReviews[rec.id] = { rec, images, filename };
+  const area = document.getElementById('reviewArea');
+  const card = document.createElement('div');
+  card.className = 'review-card';
+  card.id = 'review-' + rec.id;
+  const catOptions = categories.map(c=>`<option value="${c}" ${c===rec.kategorie?'selected':''}>${c}</option>`).join('');
+  const noteHtml = (rec.unsicher || rec.hinweis)
+    ? `<div class="review-note">⚠ ${rec.hinweis || 'Einzelne Angaben konnten nicht sicher gelesen werden — bitte prüfen.'}</div>` : '';
+
+  card.innerHTML = `
+    <div class="review-title">Bitte prüfen und speichern <span class="fname">${filename}</span></div>
+    <div class="review-body">
+      <div class="review-thumbs">
+        ${images.map((p,i)=>`<img src="data:image/jpeg;base64,${p}" title="Seite ${i+1} vergrößern" data-page="${i}">`).join('')}
+      </div>
+      <div class="review-fields">
+        <label>Datum<input class="edit-input" data-f="datum" value="${rec.datum}" placeholder="TT.MM.JJJJ"></label>
+        <label>Unternehmen<input class="edit-input" data-f="unternehmen" value="${rec.unternehmen}"></label>
+        <label>Preis (EUR)<input class="edit-input num" data-f="betragEUR" value="${rec.betragEUR}" inputmode="decimal"></label>
+        <label>Kategorie<select class="edit-input" data-f="kategorie">${catOptions}</select></label>
+      </div>
+    </div>
+    ${noteHtml}
+    <div class="review-actions">
+      <button class="btn small primary save-review">✔ Speichern</button>
+      <button class="btn small discard-review">Verwerfen</button>
+    </div>`;
+  area.appendChild(card);
+
+  card.querySelectorAll('.review-thumbs img').forEach(im=>{
+    im.addEventListener('click', ()=>{
+      const overlay = document.getElementById('imgViewer');
+      document.getElementById('imgViewerTitle').textContent = filename;
+      document.getElementById('imgViewerContent').innerHTML =
+        images.map(p=>`<img src="data:image/jpeg;base64,${p}">`).join('');
+      overlay.style.display = 'flex';
+    });
+  });
+
+  card.querySelector('.save-review').addEventListener('click', ()=>saveReview(rec.id, card));
+  card.querySelector('.discard-review').addEventListener('click', ()=>{
+    delete pendingReviews[rec.id];
+    card.remove();
+  });
+}
+
+async function saveReview(id, card){
+  const entry = pendingReviews[id];
+  if(!entry) return;
+  const { rec, images } = entry;
+
+  card.querySelectorAll('[data-f]').forEach(inp=>{
+    const f = inp.dataset.f;
+    rec[f] = (f === 'betragEUR') ? (parseFloat(String(inp.value).replace(',','.')) || 0) : inp.value;
+  });
+  rec.datumISO = parseDatumISO(rec.datum);
+
+  const btn = card.querySelector('.save-review');
+  btn.disabled = true; btn.textContent = 'Wird gespeichert…';
+
+  rec.seiten = images.length;
+  const imgSaved = await saveImages(id, images);
+  receipts.push(rec);
+  await saveIndex();
+  delete pendingReviews[id];
+  card.remove();
+  render();
+
+  if(imgSaved === false){
+    console.warn('Bild nur lokal gespeichert für', rec.unternehmen);
   }
 }
 
@@ -1453,10 +1645,11 @@ async function openImageViewer(id){
 
 async function deleteReceipt(id){
   if(!confirm('Diesen Beleg wirklich löschen?')) return;
+  const rec = receipts.find(r=>r.id===id);
+  const seiten = rec ? rec.seiten : null;
   receipts = receipts.filter(r=>r.id!==id);
   await saveIndex();
-  await storeDelete('img_'+id);
-  delete imgCache[id];
+  await deleteImages(id, seiten);
   render();
 }
 
@@ -1496,8 +1689,7 @@ document.getElementById('exportPdf').addEventListener('click', async ()=>{
   try{
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({unit:'mm', format:'a4'});
-    const catOrder = cat => categories.indexOf(cat);
-    const sorted = [...receipts].sort((a,b)=> catOrder(a.kategorie)-catOrder(b.kategorie) || a.datumISO.localeCompare(b.datumISO));
+    const sorted = [...receipts].sort((a,b)=> a.datumISO.localeCompare(b.datumISO));
     let first = true;
     for(const r of sorted){
       const img = await getImage(r.id);
@@ -1534,7 +1726,7 @@ document.getElementById('exportPdf').addEventListener('click', async ()=>{
 // ---------- Reset ----------
 document.getElementById('resetAll').addEventListener('click', async ()=>{
   if(!confirm('Wirklich ALLE Belege unwiderruflich löschen? (Kategorien & API-Key bleiben erhalten)')) return;
-  for(const r of receipts){ await storeDelete('img_'+r.id); }
+  for(const r of receipts){ await deleteImages(r.id, r.seiten); }
   receipts = [];
   await saveIndex();
   render();
