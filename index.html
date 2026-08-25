@@ -659,14 +659,17 @@ async function storeSet(key, value){
         .upsert({ user_id: currentUser.id, app: APP_NS, key, value }, { onConflict: 'user_id,app,key' });
       if(error) throw error;
       cloudWriteOk = true;
+      return true;
     }catch(e){
-      console.error('Cloud-Schreibfehler:', e);
+      console.error('Cloud-Schreibfehler bei "'+key+'":', e);
       if(cloudWriteOk !== false){
         cloudWriteOk = false;
-        showSyncWarning('Achtung: Speichern in der Cloud fehlgeschlagen. Daten liegen derzeit nur auf diesem Gerät. Bitte Belege per Excel-Export sichern.');
+        showSyncWarning('Speichern in der Cloud fehlgeschlagen ('+(e.message||'unbekannter Fehler')+'). Daten liegen derzeit nur auf diesem Gerät. Bitte per Excel-Export sichern.');
       }
+      return false;
     }
   }
+  return null;
 }
 async function storeDelete(key){
   await idbDelete(key);
@@ -1095,13 +1098,14 @@ async function handleFiles(fileList){
         hinweis: truncated ? ((extracted.hinweis||'') + ` (Dokument hat ${pageCount} Seiten, nur die ersten ${MAX_PDF_PAGES} wurden gelesen)`).trim() : (extracted.hinweis || "")
       };
 
-      await idbSet('img_'+id, {mime:'image/jpeg', pages: images});
+      const imgSaved = await storeSet('img_'+id, {mime:'image/jpeg', pages: images});
       receipts.push(rec);
       await saveIndex();
       render();
 
       const pageNote = pageCount>1 ? ` · ${pageCount} Seiten` : '';
-      row.querySelector('.queue-status').outerHTML = `<span class="queue-status ok">✓ ${kategorie}${pageNote}${rec.unsicher ? ' (prüfen)' : ''}</span>`;
+      const imgNote = imgSaved === false ? ' · ⚠ Bild nur lokal' : '';
+      row.querySelector('.queue-status').outerHTML = `<span class="queue-status ${imgSaved===false?'err':'ok'}">✓ ${kategorie}${pageNote}${imgNote}${rec.unsicher ? ' (prüfen)' : ''}</span>`;
     }catch(err){
       console.error(err);
       const statusEl = row.querySelector('.queue-status');
@@ -1451,7 +1455,7 @@ async function deleteReceipt(id){
   if(!confirm('Diesen Beleg wirklich löschen?')) return;
   receipts = receipts.filter(r=>r.id!==id);
   await saveIndex();
-  await idbDelete('img_'+id);
+  await storeDelete('img_'+id);
   delete imgCache[id];
   render();
 }
@@ -1530,7 +1534,7 @@ document.getElementById('exportPdf').addEventListener('click', async ()=>{
 // ---------- Reset ----------
 document.getElementById('resetAll').addEventListener('click', async ()=>{
   if(!confirm('Wirklich ALLE Belege unwiderruflich löschen? (Kategorien & API-Key bleiben erhalten)')) return;
-  for(const r of receipts){ await idbDelete('img_'+r.id); }
+  for(const r of receipts){ await storeDelete('img_'+r.id); }
   receipts = [];
   await saveIndex();
   render();

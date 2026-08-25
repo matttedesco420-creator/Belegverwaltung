@@ -1,4 +1,4 @@
-const CACHE_NAME = "belegverwaltung-v4";
+const CACHE_NAME = "belegverwaltung-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
