@@ -1961,8 +1961,12 @@ document.getElementById('exportXlsx').addEventListener('click', ()=>{
   alle.forEach(r=> ueb.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.kategorie||"", r.projekt||""]));
   ueb.push([]);
   const totalRowU = ueb.length + 1;
-  ueb.push(["", "GESAMTSUMME", { f:`SUM(C2:C${alle.length+1})` }, "", ""]);
+  ueb.push(["", "GESAMTSUMME", "", "", ""]);
   const wsU = XLSX.utils.aoa_to_sheet(ueb);
+  const summeAlle = alle.reduce((s,r)=>s+(Number(r.betragEUR)||0),0);
+  wsU['C'+totalRowU] = alle.length
+    ? { t:'n', v:summeAlle, f:`SUM(C2:C${alle.length+1})` }
+    : { t:'n', v:0 };
   wsU['!cols'] = [{wch:12},{wch:42},{wch:14},{wch:16},{wch:30}];
   styleSheet(wsU, 5, null, alle.length, 3, totalRowU);
   XLSX.utils.book_append_sheet(wb, wsU, "Übersicht");
@@ -1974,8 +1978,10 @@ document.getElementById('exportXlsx').addEventListener('click', ()=>{
     rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.projekt||""]));
     data.push([]);
     const tr = data.length + 1;
-    data.push(["","Summe", rows.length ? { f:`SUM(C2:C${rows.length+1})` } : 0, ""]);
+    data.push(["","Summe", "", ""]);
     const ws = XLSX.utils.aoa_to_sheet(data);
+    const sumK = rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0);
+    ws['C'+tr] = rows.length ? { t:'n', v:sumK, f:`SUM(C2:C${rows.length+1})` } : { t:'n', v:0 };
     ws['!cols'] = [{wch:12},{wch:42},{wch:14},{wch:30}];
     styleSheet(ws, 4, null, rows.length, 3, tr);
     const safeName = cat.substring(0,31).replace(/[\\\/\?\*\[\]:]/g,'_');
@@ -1990,8 +1996,10 @@ document.getElementById('exportXlsx').addEventListener('click', ()=>{
     rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.kategorie||""]));
     data.push([]);
     const tr = data.length + 1;
-    data.push(["","Summe", { f:`SUM(C2:C${rows.length+1})` }, ""]);
+    data.push(["","Summe", "", ""]);
     const ws = XLSX.utils.aoa_to_sheet(data);
+    const sumP = rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0);
+    ws['C'+tr] = { t:'n', v:sumP, f:`SUM(C2:C${rows.length+1})` };
     ws['!cols'] = [{wch:12},{wch:42},{wch:14},{wch:16}];
     styleSheet(ws, 4, null, rows.length, 3, tr);
     const safeName = ('P_'+proj.replace(/^ARA-/,'')).substring(0,31).replace(/[\\\/\?\*\[\]:]/g,'_');
@@ -2009,31 +2017,95 @@ document.getElementById('exportPdf').addEventListener('click', async ()=>{
   try{
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({unit:'mm', format:'a4'});
-    const sorted = [...receipts].sort((a,b)=> a.datumISO.localeCompare(b.datumISO));
+
+    // Nach Projekt gruppieren, innerhalb des Projekts chronologisch.
+    // Reihenfolge der Projekte: wie in der Projektverwaltung, danach "ohne Projekt".
+    const gruppen = [];
+    projects.forEach(proj=>{
+      const rows = receipts.filter(r=>r.projekt===proj)
+        .sort((a,b)=> a.datumISO.localeCompare(b.datumISO));
+      if(rows.length) gruppen.push({ titel: proj, rows });
+    });
+    const ohne = receipts.filter(r=> !r.projekt || !projects.includes(r.projekt))
+      .sort((a,b)=> a.datumISO.localeCompare(b.datumISO));
+    if(ohne.length) gruppen.push({ titel: 'Ohne Projekt', rows: ohne });
+
     let first = true;
-    for(const r of sorted){
-      const img = await getImage(r.id);
-      const pages = img ? (img.pages || (img.data ? [img.data] : [])) : [];
-      const pageCount = pages.length;
-      for(let p=0; p<Math.max(pageCount,1); p++){
-        if(!first) doc.addPage();
-        first = false;
-        doc.setFontSize(12);
-        const label = pageCount>1 ? `${r.kategorie} · ${r.datum} · ${r.unternehmen} · ${fmtEUR(Number(r.betragEUR)||0)} · Seite ${p+1}/${pageCount}` : `${r.kategorie} · ${r.datum} · ${r.unternehmen} · ${fmtEUR(Number(r.betragEUR)||0)}`;
-        doc.text(label, 10, 12);
-        if(pages[p]){
-          const dataUrl = 'data:'+img.mime+';base64,'+pages[p];
-          const props = doc.getImageProperties(dataUrl);
-          const maxW = 190, maxH = 250;
-          let w = maxW, h = (props.height*maxW)/props.width;
-          if(h>maxH){ h=maxH; w=(props.width*maxH)/props.height; }
-          doc.addImage(dataUrl, 'JPEG', 10, 18, w, h);
-        } else {
-          doc.setFontSize(10);
-          doc.text('Hinweis: Zu diesem Eintrag ist keine Bilddatei gespeichert.', 10, 30);
+
+    for(const g of gruppen){
+      // --- Trennseite je Projekt ---
+      if(!first) doc.addPage();
+      first = false;
+
+      const summe = g.rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0);
+      const von = g.rows[0].datum;
+      const bis = g.rows[g.rows.length-1].datum;
+
+      doc.setFillColor(28, 69, 48);
+      doc.rect(0, 0, 210, 45, 'F');
+      doc.setTextColor(255,255,255);
+      doc.setFontSize(20);
+      doc.text(g.titel, 15, 25);
+      doc.setFontSize(11);
+      doc.text(`${g.rows.length} Beleg(e) · ${von} – ${bis} · Summe ${fmtEUR(summe)}`, 15, 35);
+      doc.setTextColor(0,0,0);
+
+      // Inhaltsverzeichnis des Projekts
+      doc.setFontSize(10);
+      let y = 60;
+      doc.text('Datum', 15, y);
+      doc.text('Unternehmen', 45, y);
+      doc.text('Kategorie', 130, y);
+      doc.text('Betrag', 195, y, { align:'right' });
+      doc.setDrawColor(180,180,180);
+      doc.line(15, y+2, 195, y+2);
+      y += 8;
+
+      for(const r of g.rows){
+        if(y > 275){ doc.addPage(); y = 20; }
+        doc.text(String(r.datum), 15, y);
+        const name = String(r.unternehmen||'');
+        doc.text(name.length > 42 ? name.substring(0,40)+'…' : name, 45, y);
+        doc.text(String(r.kategorie||''), 130, y);
+        doc.text(fmtEUR(Number(r.betragEUR)||0), 195, y, { align:'right' });
+        y += 6;
+      }
+      doc.line(15, y, 195, y);
+      y += 6;
+      doc.setFont(undefined, 'bold');
+      doc.text('Summe', 130, y);
+      doc.text(fmtEUR(summe), 195, y, { align:'right' });
+      doc.setFont(undefined, 'normal');
+
+      // --- Belegseiten des Projekts ---
+      for(const r of g.rows){
+        const img = await getImage(r.id);
+        const pages = img ? (img.pages || (img.data ? [img.data] : [])) : [];
+        const pageCount = pages.length;
+        for(let p=0; p<Math.max(pageCount,1); p++){
+          doc.addPage();
+          doc.setFontSize(9);
+          doc.setTextColor(120,120,120);
+          doc.text(g.titel, 10, 8);
+          doc.setTextColor(0,0,0);
+          doc.setFontSize(12);
+          const seite = pageCount>1 ? ` · Seite ${p+1}/${pageCount}` : '';
+          doc.text(`${r.kategorie} · ${r.datum} · ${r.unternehmen} · ${fmtEUR(Number(r.betragEUR)||0)}${seite}`, 10, 16);
+          if(pages[p]){
+            const dataUrl = 'data:'+img.mime+';base64,'+pages[p];
+            const props = doc.getImageProperties(dataUrl);
+            const maxW = 190, maxH = 250;
+            let w = maxW, h = (props.height*maxW)/props.width;
+            if(h>maxH){ h=maxH; w=(props.width*maxH)/props.height; }
+            doc.addImage(dataUrl, 'JPEG', 10, 22, w, h);
+          } else {
+            doc.setFontSize(10);
+            doc.text('Hinweis: Zu diesem Eintrag ist keine Bilddatei gespeichert.', 10, 32);
+          }
         }
       }
     }
+
     doc.save("Belegsammlung.pdf");
   }catch(e){
     console.error(e);
