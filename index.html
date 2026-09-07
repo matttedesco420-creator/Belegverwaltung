@@ -452,7 +452,7 @@
   <button class="icon-btn" id="dismissInstall">✕</button>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -1837,49 +1837,97 @@ async function saveEdit(id, tr){
 }
 
 // ---------- Export: Excel ----------
+// ---------- Export: Excel (formatiert) ----------
+const XLS_EUR = '#,##0.00 "€"';
+
+function styleSheet(ws, ncols, headerCols, dataRows, amountCol, totalRow){
+  const A = n => String.fromCharCode(64+n); // 1->A
+  const thin = { style:'thin', color:{ rgb:'FFBFBFBF' } };
+  const border = { top:thin, bottom:thin, left:thin, right:thin };
+
+  // Kopfzeile
+  for(let c=1;c<=ncols;c++){
+    const cell = ws[A(c)+'1'];
+    if(!cell) continue;
+    cell.s = {
+      font:{ name:'Arial', sz:10, bold:true, color:{ rgb:'FFFFFFFF' } },
+      fill:{ patternType:'solid', fgColor:{ rgb:'FF1C4530' } },
+      alignment:{ horizontal:'center', vertical:'center' },
+      border
+    };
+  }
+
+  // Datenzeilen
+  for(let r=2;r<=dataRows+1;r++){
+    for(let c=1;c<=ncols;c++){
+      const cell = ws[A(c)+r];
+      if(!cell) continue;
+      cell.s = { font:{ name:'Arial', sz:10 }, border };
+      if(c===amountCol) cell.z = XLS_EUR;
+    }
+  }
+
+  // Summenzeile
+  if(totalRow){
+    for(let c=1;c<=ncols;c++){
+      const ref = A(c)+totalRow;
+      if(!ws[ref]) ws[ref] = { t:'z' };
+      ws[ref].s = {
+        font:{ name:'Arial', sz:10, bold:true },
+        fill:{ patternType:'solid', fgColor:{ rgb:'FFE2EFE7' } },
+        border
+      };
+      if(c===amountCol) ws[ref].z = XLS_EUR;
+    }
+  }
+
+  ws['!freeze'] = 'A2';
+  ws['!rows'] = [{ hpt:22 }];
+}
+
 document.getElementById('exportXlsx').addEventListener('click', ()=>{
   const wb = XLSX.utils.book_new();
+  const alle = [...receipts].sort((a,b)=> a.datumISO.localeCompare(b.datumISO));
 
   // --- Blatt 1: Übersicht, chronologisch ---
-  const alle = [...receipts].sort((a,b)=> a.datumISO.localeCompare(b.datumISO));
   const ueb = [["Datum","Unternehmen","Preis (EUR)","Kategorie","Projekt"]];
-  alle.forEach(r=> ueb.push([
-    r.datum,
-    r.unternehmen,
-    Number(r.betragEUR)||0,
-    r.kategorie || "",
-    r.projekt || ""
-  ]));
+  alle.forEach(r=> ueb.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.kategorie||"", r.projekt||""]));
   ueb.push([]);
-  ueb.push(["", "GESAMTSUMME", alle.reduce((s,r)=>s+(Number(r.betragEUR)||0),0), "", ""]);
+  const totalRowU = ueb.length + 1;
+  ueb.push(["", "GESAMTSUMME", { f:`SUM(C2:C${alle.length+1})` }, "", ""]);
   const wsU = XLSX.utils.aoa_to_sheet(ueb);
-  wsU['!cols'] = [{wch:12},{wch:32},{wch:14},{wch:16},{wch:20}];
+  wsU['!cols'] = [{wch:12},{wch:42},{wch:14},{wch:16},{wch:30}];
+  styleSheet(wsU, 5, null, alle.length, 3, totalRowU);
   XLSX.utils.book_append_sheet(wb, wsU, "Übersicht");
 
-  // --- Weitere Blätter: je Kategorie ---
+  // --- Blätter je Kategorie ---
   categories.forEach(cat=>{
-    const rows = receipts.filter(r=>r.kategorie===cat).sort((a,b)=>a.datumISO.localeCompare(b.datumISO));
+    const rows = alle.filter(r=>r.kategorie===cat);
     const data = [["Datum","Unternehmen","Preis (EUR)","Projekt"]];
-    rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.projekt || ""]));
+    rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.projekt||""]));
     data.push([]);
-    data.push(["","Summe", rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0), ""]);
+    const tr = data.length + 1;
+    data.push(["","Summe", rows.length ? { f:`SUM(C2:C${rows.length+1})` } : 0, ""]);
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{wch:12},{wch:30},{wch:14},{wch:20}];
+    ws['!cols'] = [{wch:12},{wch:42},{wch:14},{wch:30}];
+    styleSheet(ws, 4, null, rows.length, 3, tr);
     const safeName = cat.substring(0,31).replace(/[\\\/\?\*\[\]:]/g,'_');
     XLSX.utils.book_append_sheet(wb, ws, safeName || "Kategorie");
   });
 
-  // --- Blätter je Projekt (nur wenn Projekte vergeben sind) ---
+  // --- Blätter je Projekt ---
   projects.forEach(proj=>{
-    const rows = receipts.filter(r=>r.projekt===proj).sort((a,b)=>a.datumISO.localeCompare(b.datumISO));
+    const rows = alle.filter(r=>r.projekt===proj);
     if(!rows.length) return;
     const data = [["Datum","Unternehmen","Preis (EUR)","Kategorie"]];
-    rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.kategorie || ""]));
+    rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.kategorie||""]));
     data.push([]);
-    data.push(["","Summe", rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0), ""]);
+    const tr = data.length + 1;
+    data.push(["","Summe", { f:`SUM(C2:C${rows.length+1})` }, ""]);
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{wch:12},{wch:30},{wch:14},{wch:16}];
-    const safeName = ('P_'+proj).substring(0,31).replace(/[\\\/\?\*\[\]:]/g,'_');
+    ws['!cols'] = [{wch:12},{wch:42},{wch:14},{wch:16}];
+    styleSheet(ws, 4, null, rows.length, 3, tr);
+    const safeName = ('P_'+proj.replace(/^ARA-/,'')).substring(0,31).replace(/[\\\/\?\*\[\]:]/g,'_');
     XLSX.utils.book_append_sheet(wb, ws, safeName);
   });
 
