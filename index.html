@@ -366,6 +366,7 @@
     <button class="gear-btn" id="toggleSettings">⚙ Einstellungen</button>
     <button class="gear-btn" id="toggleManager">🏷 Kategorien</button>
     <button class="gear-btn" id="toggleProjects">📁 Projekte</button>
+    <button class="gear-btn" id="refreshBtn" title="Daten neu von der Cloud laden">🔄 Aktualisieren</button>
   </div>
 
   <div class="panel" id="settingsPanel" style="display:none;">
@@ -752,9 +753,36 @@ async function loadIndex(){
   const res = await storeGet('receipts_index');
   receipts = Array.isArray(res) ? res : [];
 }
+
+// Bewusst geloeschte Belege merken, damit sie beim Abgleich
+// nicht aus der Cloud zurueckkehren
+const deletedIds = new Set();
+
+// Vor dem Speichern den aktuellen Cloud-Stand holen und zusammenführen,
+// damit Belege von einem anderen Gerät nicht überschrieben werden.
 async function saveIndex(){
   if(!dataLoaded){ console.warn('Speichern übersprungen: Daten noch nicht geladen'); return; }
+
+  if(cloudReady()){
+    try{
+      const { data, error } = await sb.from('kv_store').select('value')
+        .eq('user_id', currentUser.id).eq('app', APP_NS).eq('key', 'receipts_index').maybeSingle();
+      if(!error && data && Array.isArray(data.value)){
+        const cloudList = data.value;
+        const localIds = new Set(receipts.map(r=>r.id));
+        const nurCloud = cloudList.filter(r=> r && r.id && !localIds.has(r.id) && !deletedIds.has(r.id));
+        if(nurCloud.length){
+          receipts = receipts.concat(nurCloud);
+          console.info(nurCloud.length + ' Beleg(e) von einem anderen Gerät übernommen');
+        }
+      }
+    }catch(e){
+      console.warn('Abgleich vor dem Speichern fehlgeschlagen:', e);
+    }
+  }
+
   await storeSet('receipts_index', receipts);
+  lastSync = Date.now();
 }
 
 // ---------- Bilder in Supabase Storage ----------
@@ -1588,6 +1616,44 @@ function renderProjectManager(){
   });
 }
 
+// ---------- Aktualisieren / Auto-Abgleich ----------
+let lastSync = 0;
+
+async function refreshFromCloud(showFeedback){
+  if(!cloudReady()) return;
+  const btn = document.getElementById('refreshBtn');
+  if(showFeedback && btn){ btn.textContent = '⏳ Lädt…'; btn.disabled = true; }
+  try{
+    await reloadAllFromCloud();
+    lastSync = Date.now();
+    if(showFeedback && btn){
+      btn.textContent = '✓ Aktuell';
+      setTimeout(()=>{ btn.textContent = '🔄 Aktualisieren'; btn.disabled = false; }, 1500);
+    }
+  }catch(e){
+    console.warn('Aktualisieren fehlgeschlagen:', e);
+    if(btn){ btn.textContent = '🔄 Aktualisieren'; btn.disabled = false; }
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', ()=>refreshFromCloud(true));
+
+// Beim Zurückkehren in die App automatisch nachladen (z.B. Tab-Wechsel,
+// App aus dem Hintergrund holen) - so sieht man Belege vom anderen Gerät.
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && cloudReady() && !editingId
+     && Object.keys(pendingReviews).length === 0
+     && Date.now() - lastSync > 10000){
+    refreshFromCloud(false);
+  }
+});
+window.addEventListener('focus', ()=>{
+  if(cloudReady() && !editingId && Object.keys(pendingReviews).length === 0
+     && Date.now() - lastSync > 30000){
+    refreshFromCloud(false);
+  }
+});
+
 // ---------- Rendering ----------
 function catTotal(cat){ return receipts.filter(r=>r.kategorie===cat).reduce((s,r)=>s+(Number(r.betragEUR)||0),0); }
 function grandTotal(){ return receipts.reduce((s,r)=>s+(Number(r.betragEUR)||0),0); }
@@ -1816,6 +1882,7 @@ async function deleteReceipt(id){
   if(!confirm('Diesen Beleg wirklich löschen?')) return;
   const rec = receipts.find(r=>r.id===id);
   const seiten = rec ? rec.seiten : null;
+  deletedIds.add(id);
   receipts = receipts.filter(r=>r.id!==id);
   await saveIndex();
   await deleteImages(id, seiten);
@@ -1979,7 +2046,7 @@ document.getElementById('exportPdf').addEventListener('click', async ()=>{
 // ---------- Reset ----------
 document.getElementById('resetAll').addEventListener('click', async ()=>{
   if(!confirm('Wirklich ALLE Belege unwiderruflich löschen? (Kategorien & API-Key bleiben erhalten)')) return;
-  for(const r of receipts){ await deleteImages(r.id, r.seiten); }
+  for(const r of receipts){ deletedIds.add(r.id); await deleteImages(r.id, r.seiten); }
   receipts = [];
   await saveIndex();
   render();
