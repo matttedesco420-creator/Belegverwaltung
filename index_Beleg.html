@@ -280,6 +280,11 @@
   .review-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
   @media (max-width:600px){ .review-fields{grid-template-columns:1fr;} }
 
+  .badge-proj{
+    font-family:var(--mono);font-size:9.5px;color:var(--accent-bright);border:1px solid var(--accent-dim);
+    background:var(--accent-dim);padding:1px 6px;border-radius:3px;margin-left:6px;white-space:nowrap;
+  }
+
   footer.foot{margin-top:26px;text-align:center;color:var(--text-faint);font-size:11px;font-family:var(--mono);}
 
   @media (max-width:560px){
@@ -360,6 +365,7 @@
   <div class="topbar-btns">
     <button class="gear-btn" id="toggleSettings">⚙ Einstellungen</button>
     <button class="gear-btn" id="toggleManager">🏷 Kategorien</button>
+    <button class="gear-btn" id="toggleProjects">📁 Projekte</button>
   </div>
 
   <div class="panel" id="settingsPanel" style="display:none;">
@@ -391,6 +397,7 @@
   </div>
 
   <div class="panel" id="catManager" style="display:none;"></div>
+  <div class="panel" id="projManager" style="display:none;"></div>
 
   <div class="receipt-card">
     <div class="dropzone" id="dropzone">
@@ -464,6 +471,7 @@ const KNOWN_ICONS = {Verpflegung:"🍽",Hotel:"🏨",Treibstoff:"⛽",Sonstiges:
 function getIcon(cat){ return KNOWN_ICONS[cat] || "📁"; }
 
 let categories = [...DEFAULT_CATEGORIES];
+let projects = [];
 let receipts = [];
 let activeTab = "Alle";
 let managerOpen = false;
@@ -637,14 +645,12 @@ function initSupabase(){
       updateApiWarning();
       return;
     }
+    const before = currentUser ? currentUser.id : null;
     currentUser = session ? session.user : null;
+    const after = currentUser ? currentUser.id : null;
     updateAuthUI();
-    if(currentUser && !recoveryMode) reloadAllFromCloud();
-  });
-  sb.auth.getUser().then(({data})=>{
-    currentUser = data ? data.user : null;
-    updateAuthUI();
-    if(currentUser) reloadAllFromCloud();
+    // Nur bei echtem Wechsel neu laden (nicht bei jedem Token-Refresh)
+    if(after && after !== before && !recoveryMode) reloadAllFromCloud();
   });
 }
 
@@ -657,8 +663,10 @@ function updateAuthUI(){
 }
 
 async function reloadAllFromCloud(){
+  dataLoaded = false;
   await loadCategories();
   await loadIndex();
+  dataLoaded = true;
   render();
 }
 
@@ -719,18 +727,35 @@ async function storeDelete(key){
 }
 
 // ---------- Persistence ----------
+// Schutz gegen Datenverlust: Es wird NICHT gespeichert, bevor die Daten
+// aus der Cloud vollstaendig geladen wurden. Sonst koennte eine leere
+// Liste die vorhandenen Belege ueberschreiben.
+let dataLoaded = false;
+
 async function loadCategories(){
   const res = await storeGet('categories');
-  categories = res || [...DEFAULT_CATEGORIES];
-  if(!res) await storeSet('categories', categories);
+  categories = (Array.isArray(res) && res.length) ? res : [...DEFAULT_CATEGORIES];
+  const p = await storeGet('projects');
+  projects = Array.isArray(p) ? p : [];
+  // Bewusst NICHT speichern - das wuerde beim Start Cloud-Daten ueberschreiben
 }
-async function saveCategories(){ await storeSet('categories', categories); }
+async function saveCategories(){
+  if(!dataLoaded){ console.warn('Speichern übersprungen: Daten noch nicht geladen'); return; }
+  await storeSet('categories', categories);
+}
+async function saveProjects(){
+  if(!dataLoaded){ console.warn('Speichern übersprungen: Daten noch nicht geladen'); return; }
+  await storeSet('projects', projects);
+}
 
 async function loadIndex(){
   const res = await storeGet('receipts_index');
-  receipts = res || [];
+  receipts = Array.isArray(res) ? res : [];
 }
-async function saveIndex(){ await storeSet('receipts_index', receipts); }
+async function saveIndex(){
+  if(!dataLoaded){ console.warn('Speichern übersprungen: Daten noch nicht geladen'); return; }
+  await storeSet('receipts_index', receipts);
+}
 
 // ---------- Bilder in Supabase Storage ----------
 const BUCKET = 'belege';
@@ -837,14 +862,26 @@ async function init(){
 
   try{ initSupabase(); }catch(e){ console.warn('Supabase-Init fehlgeschlagen:', e); }
 
+  // WICHTIG: Erst die Sitzung abwarten, dann laden.
+  // Sonst wuerde ohne Anmeldung aus dem leeren lokalen Speicher gelesen
+  // und ein spaeteres Speichern die Cloud-Daten loeschen.
+  if(sb){
+    try{
+      const { data } = await sb.auth.getSession();
+      currentUser = data && data.session ? data.session.user : null;
+      updateAuthUI();
+    }catch(e){ console.warn('Sitzung konnte nicht geprüft werden:', e); }
+  }
+
   try{
     await loadCategories();
     await loadIndex();
   }catch(e){
-    console.warn('Lokaler Speicher nicht verfuegbar:', e);
+    console.warn('Laden fehlgeschlagen:', e);
     categories = [...DEFAULT_CATEGORIES];
     receipts = [];
   }
+  dataLoaded = true;
   updateApiWarning();
   render();
 }
@@ -1239,6 +1276,9 @@ function addToReview(rec, images, filename){
   card.className = 'review-card';
   card.id = 'review-' + rec.id;
   const catOptions = categories.map(c=>`<option value="${c}" ${c===rec.kategorie?'selected':''}>${c}</option>`).join('');
+  const projOptions = ['<option value="">— kein Projekt —</option>']
+    .concat(projects.map(p=>`<option value="${p}">${p}</option>`))
+    .concat('<option value="__neu__">+ Neues Projekt…</option>').join('');
   const noteHtml = (rec.unsicher || rec.hinweis)
     ? `<div class="review-note">⚠ ${rec.hinweis || 'Einzelne Angaben konnten nicht sicher gelesen werden — bitte prüfen.'}</div>` : '';
 
@@ -1253,6 +1293,7 @@ function addToReview(rec, images, filename){
         <label>Unternehmen<input class="edit-input" data-f="unternehmen" value="${rec.unternehmen}"></label>
         <label>Preis (EUR)<input class="edit-input num" data-f="betragEUR" value="${rec.betragEUR}" inputmode="decimal"></label>
         <label>Kategorie<select class="edit-input" data-f="kategorie">${catOptions}</select></label>
+        <label style="grid-column:1/-1;">Projekt<select class="edit-input proj-select" data-f="projekt">${projOptions}</select></label>
       </div>
     </div>
     ${noteHtml}
@@ -1261,6 +1302,23 @@ function addToReview(rec, images, filename){
       <button class="btn small discard-review">Verwerfen</button>
     </div>`;
   area.appendChild(card);
+
+  // "Neues Projekt" direkt hier anlegen
+  const projSel = card.querySelector('.proj-select');
+  projSel.addEventListener('change', async ()=>{
+    if(projSel.value !== '__neu__') return;
+    const name = prompt('Name des neuen Projekts:');
+    if(name && name.trim()){
+      const clean = name.trim();
+      if(!projects.includes(clean)){
+        projects.push(clean);
+        await saveProjects();
+      }
+      refreshProjectSelects(clean);
+    } else {
+      projSel.value = '';
+    }
+  });
 
   card.querySelectorAll('.review-thumbs img').forEach(im=>{
     im.addEventListener('click', ()=>{
@@ -1279,6 +1337,16 @@ function addToReview(rec, images, filename){
   });
 }
 
+function refreshProjectSelects(selectValue){
+  document.querySelectorAll('.proj-select').forEach(sel=>{
+    const keep = (sel.value === '__neu__') ? (selectValue || '') : sel.value;
+    sel.innerHTML = ['<option value="">— kein Projekt —</option>']
+      .concat(projects.map(p=>`<option value="${p}">${p}</option>`))
+      .concat('<option value="__neu__">+ Neues Projekt…</option>').join('');
+    sel.value = projects.includes(keep) ? keep : '';
+  });
+}
+
 async function saveReview(id, card){
   const entry = pendingReviews[id];
   if(!entry) return;
@@ -1286,7 +1354,9 @@ async function saveReview(id, card){
 
   card.querySelectorAll('[data-f]').forEach(inp=>{
     const f = inp.dataset.f;
-    rec[f] = (f === 'betragEUR') ? (parseFloat(String(inp.value).replace(',','.')) || 0) : inp.value;
+    let v = inp.value;
+    if(f === 'projekt' && v === '__neu__') v = '';
+    rec[f] = (f === 'betragEUR') ? (parseFloat(String(v).replace(',','.')) || 0) : v;
   });
   rec.datumISO = parseDatumISO(rec.datum);
 
@@ -1338,7 +1408,10 @@ document.getElementById('toggleSettings').addEventListener('click', ()=>{
 document.getElementById('toggleManager').addEventListener('click', ()=>{
   managerOpen = !managerOpen;
   reassignTarget = null;
-  if(managerOpen){ settingsOpen=false; document.getElementById('settingsPanel').style.display='none'; }
+  if(managerOpen){
+    settingsOpen=false; document.getElementById('settingsPanel').style.display='none';
+    projectsOpen=false; document.getElementById('projManager').style.display='none';
+  }
   renderManager();
 });
 
@@ -1433,6 +1506,88 @@ function renderManager(){
   });
 }
 
+// ---------- Projektverwaltung ----------
+let projectsOpen = false;
+
+document.getElementById('toggleProjects').addEventListener('click', ()=>{
+  projectsOpen = !projectsOpen;
+  if(projectsOpen){
+    managerOpen = false; document.getElementById('catManager').style.display='none';
+    settingsOpen = false; document.getElementById('settingsPanel').style.display='none';
+  }
+  renderProjectManager();
+});
+
+function renderProjectManager(){
+  const box = document.getElementById('projManager');
+  if(!projectsOpen){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+
+  const rows = projects.length ? projects.map(p=>{
+    const count = receipts.filter(r=>r.projekt===p).length;
+    const sum = receipts.filter(r=>r.projekt===p).reduce((s,r)=>s+(Number(r.betragEUR)||0),0);
+    return `<div class="cat-manage-row">
+      <input class="edit-input" data-rename-proj="${p}" value="${p}">
+      <span class="count">${count} Beleg(e) · ${fmtEUR(sum)}</span>
+      <button class="icon-btn del" data-del-proj="${p}" title="Löschen">🗑</button>
+    </div>`;
+  }).join('') : '<div class="hint" style="margin:6px 0;">Noch keine Projekte angelegt.</div>';
+
+  box.innerHTML = `
+    <h3>Projekte</h3>
+    ${rows}
+    <div class="cat-add-row">
+      <input class="edit-input" id="newProjInput" placeholder="Neues Projekt, z.B. Messe Erlangen">
+      <button class="btn small primary" id="addProjBtn">+ Hinzufügen</button>
+    </div>
+    <div class="hint" style="margin-top:8px;">Beim Prüfen eines Belegs kannst du ein Projekt zuordnen. In der Excel-Übersicht erscheint es als eigene Spalte.</div>
+  `;
+
+  box.querySelectorAll('input[data-rename-proj]').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const oldName = inp.dataset.renameProj;
+      const newName = inp.value.trim();
+      if(!newName || newName===oldName){ inp.value = oldName; return; }
+      if(projects.includes(newName)){ alert('Dieses Projekt gibt es schon.'); inp.value = oldName; return; }
+      projects[projects.indexOf(oldName)] = newName;
+      receipts.forEach(r=>{ if(r.projekt===oldName) r.projekt = newName; });
+      await saveProjects();
+      await saveIndex();
+      renderProjectManager();
+      render();
+    });
+  });
+
+  box.querySelectorAll('[data-del-proj]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const p = btn.dataset.delProj;
+      const count = receipts.filter(r=>r.projekt===p).length;
+      const msg = count
+        ? `Projekt "${p}" löschen? ${count} Beleg(e) behalten ihre Daten, verlieren aber die Projektzuordnung.`
+        : `Projekt "${p}" löschen?`;
+      if(!confirm(msg)) return;
+      projects = projects.filter(x=>x!==p);
+      receipts.forEach(r=>{ if(r.projekt===p) r.projekt = ''; });
+      await saveProjects();
+      await saveIndex();
+      renderProjectManager();
+      render();
+    });
+  });
+
+  document.getElementById('addProjBtn').addEventListener('click', async ()=>{
+    const inp = document.getElementById('newProjInput');
+    const name = inp.value.trim();
+    if(!name) return;
+    if(projects.includes(name)){ alert('Dieses Projekt gibt es schon.'); return; }
+    projects.push(name);
+    await saveProjects();
+    inp.value='';
+    renderProjectManager();
+    refreshProjectSelects();
+  });
+}
+
 // ---------- Rendering ----------
 function catTotal(cat){ return receipts.filter(r=>r.kategorie===cat).reduce((s,r)=>s+(Number(r.betragEUR)||0),0); }
 function grandTotal(){ return receipts.reduce((s,r)=>s+(Number(r.betragEUR)||0),0); }
@@ -1453,7 +1608,7 @@ function rowHtml(r){
     ? `<span class="orig">${(r.betragOriginal??'').toString().replace('.',',')} ${r.waehrungOriginal} · Kurs ${r.kurs}</span>` : '';
   return `<tr data-id="${r.id}">
     <td>${r.datum}</td>
-    <td>${r.unternehmen}${r.unsicher?'<span class="badge-unsicher" title="'+ (r.hinweis||'Bitte prüfen') +'">prüfen</span>':''}</td>
+    <td>${r.unternehmen}${r.unsicher?'<span class="badge-unsicher" title="'+ (r.hinweis||'Bitte prüfen') +'">prüfen</span>':''}${r.projekt?'<span class="badge-proj">'+r.projekt+'</span>':''}</td>
     <td class="num">${fmtEUR(Number(r.betragEUR)||0)}${origLine}</td>
     <td>
       <div class="row-actions">
@@ -1467,6 +1622,9 @@ function rowHtml(r){
 
 function editRowHtml(r){
   const catOptions = categories.map(c=>`<option value="${c}" ${c===r.kategorie?'selected':''}>${c}</option>`).join('');
+  const projOptions = ['<option value="">— kein Projekt —</option>']
+    .concat(projects.map(p=>`<option value="${p}" ${p===r.projekt?'selected':''}>${p}</option>`))
+    .concat('<option value="__neu__">+ Neues Projekt…</option>').join('');
   return `<tr data-id="${r.id}" class="editing">
     <td colspan="4">
       <div class="edit-grid">
@@ -1474,6 +1632,7 @@ function editRowHtml(r){
         <label>Unternehmen<input class="edit-input" data-f="unternehmen" value="${r.unternehmen}"></label>
         <label>Preis (EUR)<input class="edit-input num" data-f="betragEUR" value="${r.betragEUR}" inputmode="decimal"></label>
         <label>Kategorie<select class="edit-input" data-f="kategorie">${catOptions}</select></label>
+        <label style="grid-column:1/-1;">Projekt<select class="edit-input proj-select" data-f="projekt">${projOptions}</select></label>
       </div>
       <div class="edit-actions">
         <button class="btn small primary save">✔ Speichern</button>
@@ -1525,6 +1684,16 @@ function render(){
     if(delBtn) delBtn.addEventListener('click', ()=>deleteReceipt(id));
     if(saveBtn) saveBtn.addEventListener('click', ()=>saveEdit(id, tr));
     if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ editingId=null; render(); });
+    const ps = tr.querySelector('.proj-select');
+    if(ps) ps.addEventListener('change', async ()=>{
+      if(ps.value !== '__neu__') return;
+      const name = prompt('Name des neuen Projekts:');
+      if(name && name.trim()){
+        const clean = name.trim();
+        if(!projects.includes(clean)){ projects.push(clean); await saveProjects(); }
+        refreshProjectSelects(clean);
+      } else { ps.value = ''; }
+    });
   });
 
   // Beleg-Vorschau in der Bearbeitungszeile nachladen
@@ -1566,7 +1735,7 @@ async function renderDocuments(){
       <div class="doc-info">
         <div class="doc-name">${r.unternehmen}</div>
         <div class="doc-meta">
-          ${r.datum} · <span class="cat">${r.kategorie}</span> · ${fmtEUR(Number(r.betragEUR)||0)}<span data-slot="pages"></span>
+          ${r.datum} · <span class="cat">${r.kategorie}</span>${r.projekt ? ' · <span class="cat">'+r.projekt+'</span>' : ''} · ${fmtEUR(Number(r.betragEUR)||0)}<span data-slot="pages"></span>
         </div>
       </div>
       <div class="doc-actions">
@@ -1657,7 +1826,9 @@ async function saveEdit(id, tr){
   const rec = receipts.find(r=>r.id===id);
   tr.querySelectorAll('[data-f]').forEach(inp=>{
     const f = inp.dataset.f;
-    rec[f] = f==="betragEUR" ? parseFloat(inp.value.replace(',','.')) || 0 : inp.value;
+    let v = inp.value;
+    if(f === 'projekt' && v === '__neu__') v = '';
+    rec[f] = f==="betragEUR" ? parseFloat(String(v).replace(',','.')) || 0 : v;
   });
   rec.datumISO = parseDatumISO(rec.datum);
   editingId = null;
@@ -1668,16 +1839,50 @@ async function saveEdit(id, tr){
 // ---------- Export: Excel ----------
 document.getElementById('exportXlsx').addEventListener('click', ()=>{
   const wb = XLSX.utils.book_new();
+
+  // --- Blatt 1: Übersicht, chronologisch ---
+  const alle = [...receipts].sort((a,b)=> a.datumISO.localeCompare(b.datumISO));
+  const ueb = [["Datum","Unternehmen","Preis (EUR)","Kategorie","Projekt"]];
+  alle.forEach(r=> ueb.push([
+    r.datum,
+    r.unternehmen,
+    Number(r.betragEUR)||0,
+    r.kategorie || "",
+    r.projekt || ""
+  ]));
+  ueb.push([]);
+  ueb.push(["", "GESAMTSUMME", alle.reduce((s,r)=>s+(Number(r.betragEUR)||0),0), "", ""]);
+  const wsU = XLSX.utils.aoa_to_sheet(ueb);
+  wsU['!cols'] = [{wch:12},{wch:32},{wch:14},{wch:16},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, wsU, "Übersicht");
+
+  // --- Weitere Blätter: je Kategorie ---
   categories.forEach(cat=>{
     const rows = receipts.filter(r=>r.kategorie===cat).sort((a,b)=>a.datumISO.localeCompare(b.datumISO));
-    const data = [["Datum","Unternehmen","Preis (EUR)"]];
-    rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0]));
-    data.push(["","Summe", rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0)]);
+    const data = [["Datum","Unternehmen","Preis (EUR)","Projekt"]];
+    rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.projekt || ""]));
+    data.push([]);
+    data.push(["","Summe", rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0), ""]);
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{wch:12},{wch:28},{wch:14}];
+    ws['!cols'] = [{wch:12},{wch:30},{wch:14},{wch:20}];
     const safeName = cat.substring(0,31).replace(/[\\\/\?\*\[\]:]/g,'_');
     XLSX.utils.book_append_sheet(wb, ws, safeName || "Kategorie");
   });
+
+  // --- Blätter je Projekt (nur wenn Projekte vergeben sind) ---
+  projects.forEach(proj=>{
+    const rows = receipts.filter(r=>r.projekt===proj).sort((a,b)=>a.datumISO.localeCompare(b.datumISO));
+    if(!rows.length) return;
+    const data = [["Datum","Unternehmen","Preis (EUR)","Kategorie"]];
+    rows.forEach(r=> data.push([r.datum, r.unternehmen, Number(r.betragEUR)||0, r.kategorie || ""]));
+    data.push([]);
+    data.push(["","Summe", rows.reduce((s,r)=>s+(Number(r.betragEUR)||0),0), ""]);
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{wch:12},{wch:30},{wch:14},{wch:16}];
+    const safeName = ('P_'+proj).substring(0,31).replace(/[\\\/\?\*\[\]:]/g,'_');
+    XLSX.utils.book_append_sheet(wb, ws, safeName);
+  });
+
   XLSX.writeFile(wb, "Reisekosten.xlsx");
 });
 
