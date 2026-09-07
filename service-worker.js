@@ -1,4 +1,6 @@
-const CACHE_NAME = "belegverwaltung-v13";
+// Muss bei jeder Änderung hochgezählt werden - identisch zu APP_VERSION in index.html
+const APP_VERSION = "v15";
+const CACHE_NAME = "belegverwaltung-" + APP_VERSION;
 const APP_SHELL = [
   "./",
   "./index.html",
