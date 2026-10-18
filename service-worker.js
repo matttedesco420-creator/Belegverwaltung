@@ -1,5 +1,5 @@
 // Muss bei jeder Änderung hochgezählt werden - identisch zu APP_VERSION in index.html
-const APP_VERSION = "v17";
+const APP_VERSION = "v18";
 const CACHE_NAME = "belegverwaltung-" + APP_VERSION;
 const APP_SHELL = [
   "./",

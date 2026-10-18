@@ -105,7 +105,12 @@
   .camera-row .btn{width:100%;max-width:280px;text-align:center;padding:10px;}
 
   .queue{padding:0 16px 14px;}
-  .queue-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;}
+  .queue-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;}
+  .queue-error{
+    flex-basis:100%;background:var(--danger-dim);border:1px solid var(--danger);color:#f0c4b8;
+    font-size:11.5px;line-height:1.45;padding:8px 10px;border-radius:5px;margin-top:6px;
+    word-break:break-word;
+  }
   .queue-item:last-child{border-bottom:none;}
   .queue-thumb{width:34px;height:34px;border-radius:3px;object-fit:cover;border:1px solid var(--border-bright);flex-shrink:0;}
   .queue-status{margin-left:auto;font-family:var(--mono);font-size:11px;white-space:nowrap;}
@@ -370,8 +375,9 @@
     <span class="field-lbl">Anthropic API-Key</span>
     <input class="edit-input" id="apiKeyInput" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="sk-ant-...">
     <div id="apiKeyMsg" class="acct-msg" style="display:none;"></div>
-    <div class="row-actions" style="margin-top:8px;justify-content:flex-start;">
+    <div class="row-actions" style="margin-top:8px;justify-content:flex-start;flex-wrap:wrap;">
       <button class="btn small primary" id="saveApiKey">Key speichern</button>
+      <button class="btn small" id="testApiKey">Verbindung testen</button>
       <button class="btn small" id="clearApiKey">Key entfernen</button>
     </div>
     <div class="hint" style="margin-top:6px;">Wird nur auf diesem Gerät gespeichert und ausschließlich an api.anthropic.com gesendet. Erstellen unter <span style="color:var(--accent-bright)">console.anthropic.com</span> → API Keys.</div>
@@ -464,7 +470,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-const APP_VERSION = "v17";
+const APP_VERSION = "v18";
 
 const DEFAULT_CATEGORIES = ["Verpflegung","Hotel","Treibstoff","Sonstiges"];
 
@@ -760,6 +766,59 @@ document.getElementById('saveApiKey').addEventListener('click', ()=>{
   updateApiWarning();
 });
 
+// ---------- Verbindungstest: sagt genau, woran es haengt ----------
+document.getElementById('testApiKey').addEventListener('click', async ()=>{
+  const key = document.getElementById('apiKeyInput').value.trim() || getApiKey();
+  if(!key){ showAcctMsg('apiKeyMsg','Bitte zuerst einen Key eintragen.', false); return; }
+
+  const btn = document.getElementById('testApiKey');
+  btn.disabled = true; btn.textContent = 'Teste…';
+  showAcctMsg('apiKeyMsg','Verbindung wird geprüft…', true);
+
+  try{
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_tokens: 4,
+        messages:[{ role:'user', content:'Antworte nur mit: OK' }]
+      })
+    });
+
+    if(res.ok){
+      showAcctMsg('apiKeyMsg','✓ Verbindung erfolgreich. Das Scannen von Belegen funktioniert.', true);
+      return;
+    }
+
+    let m = '';
+    try{ const e = await res.json(); m = (e.error && e.error.message) || ''; }catch(x){}
+
+    if(res.status === 401)
+      showAcctMsg('apiKeyMsg','Der API-Key wird abgelehnt (401). Bitte unter console.anthropic.com prüfen, ob er noch gültig ist, oder einen neuen erstellen.', false);
+    else if(res.status === 403)
+      showAcctMsg('apiKeyMsg','Zugriff verweigert (403). Der Key hat möglicherweise keine Berechtigung für dieses Modell.', false);
+    else if(res.status === 429)
+      showAcctMsg('apiKeyMsg','Zu viele Anfragen oder Guthaben aufgebraucht (429). Unter console.anthropic.com → Billing das Guthaben prüfen.', false);
+    else if(res.status === 400 && /credit|balance|insufficient/i.test(m))
+      showAcctMsg('apiKeyMsg','Kein Guthaben mehr auf dem Anthropic-Konto. Unter console.anthropic.com → Billing aufladen.', false);
+    else if(res.status === 404 || /model/i.test(m))
+      showAcctMsg('apiKeyMsg','Das Modell "'+AI_MODEL+'" ist für dieses Konto nicht verfügbar. ' + (m ? '('+m.slice(0,120)+')' : ''), false);
+    else
+      showAcctMsg('apiKeyMsg','Fehler '+res.status+(m ? ': '+m.slice(0,160) : ''), false);
+
+  }catch(e){
+    showAcctMsg('apiKeyMsg','Keine Verbindung zu api.anthropic.com möglich. Entweder fehlt gerade das Internet, oder der Browser blockiert die Anfrage. Meldung: '+(e.message||'unbekannt'), false);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Verbindung testen';
+  }
+});
+
 document.getElementById('clearApiKey').addEventListener('click', ()=>{
   if(!confirm('API-Key von diesem Gerät entfernen? Belege können danach nicht mehr gescannt werden. Die bereits erfassten Belege bleiben erhalten.')) return;
   clearApiKeyStored();
@@ -1048,7 +1107,12 @@ async function handleFiles(fileList){
     }catch(err){
       console.error(err);
       const statusEl = row.querySelector('.queue-status');
-      if(statusEl) statusEl.outerHTML = `<span class="queue-status err" title="${(err.message||'').replace(/"/g,'')}">✕ Fehler</span>`;
+      if(statusEl) statusEl.outerHTML = `<span class="queue-status err">✕ Fehler</span>`;
+      // Grund vollstaendig und sichtbar anzeigen (nicht nur als Tooltip)
+      const detail = document.createElement('div');
+      detail.className = 'queue-error';
+      detail.textContent = err.message || 'Unbekannter Fehler';
+      row.appendChild(detail);
     }
   }
 }
